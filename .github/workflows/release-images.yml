@@ -1,0 +1,76 @@
+# 构建并推送 all-in-one 镜像到 ghcr.io(默认) + docker.io(配置 DOCKERHUB_USERNAME 后)。
+# 单镜像:后端内嵌双前端(go:embed),docker run 开箱即用。
+# 触发:push main(:latest)、打 tag v*(:version + :latest)、手动。
+#
+# Docker Hub 推送门控:仓库配 Variable DOCKERHUB_USERNAME(认证用户) + Secret DOCKERHUB_TOKEN 即推;
+# 未配置则只推 GHCR(fork 友好)。
+# 首次推送后:GHCR 镜像随仓库 public 自动 public;Docker Hub 仓库 Settings 设 Public。
+name: Release Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # 推送 ghcr.io 所需
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub 登录:仅当配置了 DOCKERHUB_USERNAME(Variable)才执行
+      - name: 登录 Docker Hub
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 组装镜像名列表:GHCR 必推;Docker Hub 仅在配置了 DOCKERHUB_USERNAME 时追加
+      - name: 准备镜像名列表
+        id: imgs
+        shell: bash
+        run: |
+          {
+            echo "images<<EOF"
+            echo "ghcr.io/${{ github.repository_owner }}/llm-gateway"
+            if [ -n "${{ vars.DOCKERHUB_USERNAME }}" ]; then
+              echo "docker.io/${{ vars.DOCKERHUB_USERNAME }}/llm-gateway"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.imgs.outputs.images }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}}
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .              # 构建上下文为仓库根(多阶段 Dockerfile 内 COPY 命中)
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64   # 纯 Go 静态二进制 + 官方多架构基础镜像,零成本支持 ARM(M1/M2、Graviton)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
