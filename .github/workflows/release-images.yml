@@ -2,7 +2,8 @@
 # 单镜像:后端内嵌双前端(go:embed),docker run 开箱即用。
 # 触发:push main(:latest)、打 tag v*(:version + :latest)、手动。
 #
-# Docker Hub 推送门控:仓库配 Variable DOCKERHUB_USERNAME(认证用户) + Secret DOCKERHUB_TOKEN 即推;
+# Docker Hub 推送门控:仓库配 Variable DOCKERHUB_USERNAME(认证账号,需对 aitoys 组织有推送权限)
+#   + Secret DOCKERHUB_TOKEN 即推到 docker.io/aitoys/llm-gateway;
 # 未配置则只推 GHCR(fork 友好)。
 # 首次推送后:GHCR 镜像随仓库 public 自动 public;Docker Hub 仓库 Settings 设 Public。
 name: Release Images
@@ -49,7 +50,7 @@ jobs:
             echo "images<<EOF"
             echo "ghcr.io/${{ github.repository_owner }}/llm-gateway"
             if [ -n "${{ vars.DOCKERHUB_USERNAME }}" ]; then
-              echo "docker.io/${{ vars.DOCKERHUB_USERNAME }}/llm-gateway"
+              echo "docker.io/aitoys/llm-gateway"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
