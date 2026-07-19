@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -118,7 +118,7 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       # e2e 走 MountSPAs serve 的前端 dist,必须先 build(与 frontend job 独立,因 artifact 不共享)。
