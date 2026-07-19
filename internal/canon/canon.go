@@ -2,6 +2,8 @@
 // 入口侧(OpenAI / Anthropic)统一转换为此格式，出口侧 adapter 再转换为各供应商原生格式。
 package canon
 
+import "strings"
+
 // Role 角色枚举。
 type Role string
 
@@ -142,25 +144,25 @@ func TextContent(m Message) string {
 	case string:
 		return v
 	case []ContentPart:
-		var sb string
+		var sb strings.Builder
 		for _, p := range v {
 			if p.Type == "text" {
-				sb += p.Text
+				sb.WriteString(p.Text)
 			}
 		}
-		return sb
+		return sb.String()
 	case []interface{}:
-		var sb string
+		var sb strings.Builder
 		for _, it := range v {
 			if mp, ok := it.(map[string]any); ok {
 				if t, _ := mp["type"].(string); t == "text" {
 					if s, ok := mp["text"].(string); ok {
-						sb += s
+						sb.WriteString(s)
 					}
 				}
 			}
 		}
-		return sb
+		return sb.String()
 	}
 	return ""
 }

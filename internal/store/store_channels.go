@@ -195,7 +195,8 @@ func (s *Store) SetChannelModelStatus(ctx context.Context, channelID, modelName,
 	return nil
 }
 
-// AddChannelModel 挂载单个模型到渠道(默认成本 0=回退渠道级,active)。已存在则返回 ErrFound 供调用方幂等处理。
+// AddChannelModel 挂载单个模型到渠道(默认成本 0=回退渠道级,active)。
+// 已存在则返回 PG unique violation(23505);调用方用 isUniqueViolation 识别做幂等处理(无 ErrFound sentinel)。
 func (s *Store) AddChannelModel(ctx context.Context, channelID, modelName string) error {
 	_, err := s.Pool.Exec(ctx,
 		`INSERT INTO channel_models(id,channel_id,model_name,upstream_model,input_cost_cents_per_m,output_cost_cents_per_m,cache_read_cost_cents_per_m,cache_write_cost_cents_per_m,weight,status,created_at)

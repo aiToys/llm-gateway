@@ -62,7 +62,13 @@ func APIKeyAuth(s *store.Store, rdb *redis.Client) gin.HandlerFunc {
 				return
 			}
 			u, err := s.GetUser(g.Request.Context(), k.UserID)
-			if err != nil || u.Status != "active" {
+			if err != nil {
+				// DB 错误(连接抖动/超时)不可伪装成"用户禁用":否则 active 用户的合法请求被永久拒绝,
+				// 且调用方拿不到可重试的 5xx 信号。与账户状态分别判定。
+				g.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "internal_error", "message": "internal_error"}})
+				return
+			}
+			if u.Status != "active" {
 				abortAuth(g, "user_disabled")
 				return
 			}

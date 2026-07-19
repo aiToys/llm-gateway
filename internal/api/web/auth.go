@@ -70,7 +70,12 @@ func (s *Server) login(g *gin.Context) {
 	}
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	// login 需要租户;允许跨租户查询(取第一个匹配 email 的用户)。
-	tenantIDs, _ := s.tenantsByEmail(g, req.Email)
+	tenantIDs, err := s.tenantsByEmail(g, req.Email)
+	if err != nil {
+		// DB 不可用时不应伪装成"凭据无效":否则用户无论怎么试都 401,运维也看不到 5xx 重试信号。
+		s.respondInternal(g, err)
+		return
+	}
 	var u *model.User
 	for _, tid := range tenantIDs {
 		if got, err := s.Store.GetUserByEmail(g.Request.Context(), tid, req.Email); err == nil {

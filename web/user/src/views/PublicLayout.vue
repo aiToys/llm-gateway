@@ -6,7 +6,7 @@
         <router-link to="/">首页</router-link>
         <router-link to="/models">模型广场</router-link>
         <router-link to="/pricing">定价</router-link>
-        <a href="https://github.com/aitoys/llm-gateway" target="_blank" rel="noopener" class="ext">文档</a>
+        <a href="https://docs.cncf.vip/llm-gateway/" target="_blank" rel="noopener" class="ext">文档</a>
       </nav>
       <div class="right">
         <a class="gh" href="https://github.com/aitoys/llm-gateway" target="_blank" rel="noopener" title="GitHub">

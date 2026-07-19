@@ -301,13 +301,7 @@ func originURL(g *gin.Context) string {
 	return scheme + "://" + g.Request.Host
 }
 
-func cryptoID() string {
-	id, err := crypto.RandomHex(16)
-	if err != nil {
-		return "id-" + time.Now().Format("20060102150405")
-	}
-	return id
-}
+func cryptoID() string { return crypto.NewID() }
 
 func ternaryStr(cond bool, a, b string) string {
 	if cond {

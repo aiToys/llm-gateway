@@ -9,6 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ledgerInsertSQL 插入一条 billing_ledger 行的 SQL(13 列);ChargeAtomic/AdjustAtomic/TransferAtomic 复用,
+// 避免列名与占位符在 4 处原子事务中逐字漂移。
+const ledgerInsertSQL = `INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`
+
+// ledgerInsertArgs 按列序组装 billing_ledger INSERT 的 13 个参数(与 ledgerInsertSQL 列序对应)。
+func ledgerInsertArgs(l *model.BillingLedger) []any {
+	return []any{l.ID, l.TenantID, l.UserID, l.RequestID, l.Model, l.InputTokens, l.OutputTokens,
+		l.CostCents, l.PriceCents, l.MarginCents, l.Type, l.BalanceAfter, l.CreatedAt}
+}
+
 // ChargeAtomic 在单个事务内完成"扣减余额 + 写账目",并对用户行加 FOR UPDATE 行锁。
 // 保证: ① 余额变更与账目要么同时提交要么同时回滚(避免"钱扣了没账目"的资金凭空消失);
 //
@@ -48,12 +59,10 @@ func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64
 	if l.Type == model.LedgerUsage && l.RequestID != "" {
 		var insertedID string
 		err = tx.QueryRow(ctx,
-			`INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
-			 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			ledgerInsertSQL+`
 			 ON CONFLICT DO NOTHING
 			 RETURNING id`,
-			l.ID, l.TenantID, l.UserID, l.RequestID, l.Model, l.InputTokens, l.OutputTokens,
-			l.CostCents, l.PriceCents, l.MarginCents, l.Type, l.BalanceAfter, l.CreatedAt).Scan(&insertedID)
+			ledgerInsertArgs(l)...).Scan(&insertedID)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return 0, err
@@ -78,11 +87,7 @@ func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64
 	if _, err = tx.Exec(ctx, `UPDATE users SET balance_cents=$2 WHERE id=$1`, l.UserID, nb); err != nil {
 		return 0, err
 	}
-	if _, err = tx.Exec(ctx,
-		`INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		l.ID, l.TenantID, l.UserID, l.RequestID, l.Model, l.InputTokens, l.OutputTokens,
-		l.CostCents, l.PriceCents, l.MarginCents, l.Type, l.BalanceAfter, l.CreatedAt); err != nil {
+	if _, err = tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(l)...); err != nil {
 		return 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -114,11 +119,7 @@ func (s *Store) AdjustAtomic(ctx context.Context, l *model.BillingLedger, rechar
 			return 0, err
 		}
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		l.ID, l.TenantID, l.UserID, l.RequestID, l.Model, l.InputTokens, l.OutputTokens,
-		l.CostCents, l.PriceCents, l.MarginCents, l.Type, l.BalanceAfter, l.CreatedAt); err != nil {
+	if _, err := tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(l)...); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -182,11 +183,7 @@ func (s *Store) TransferAtomic(ctx context.Context, tenantID, fromID, toID strin
 		{ID: storeID(), TenantID: tenantID, UserID: fromID, RequestID: "transfer", Model: "-", CostCents: 0, PriceCents: amountCents, MarginCents: 0, Type: model.LedgerTransfer, BalanceAfter: fromBal, CreatedAt: now},
 		{ID: storeID(), TenantID: tenantID, UserID: toID, RequestID: "transfer", Model: "-", CostCents: 0, PriceCents: -amountCents, MarginCents: 0, Type: model.LedgerTransfer, BalanceAfter: toBal, CreatedAt: now},
 	} {
-		if _, err = tx.Exec(ctx,
-			`INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
-			 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-			l.ID, l.TenantID, l.UserID, l.RequestID, l.Model, l.InputTokens, l.OutputTokens,
-			l.CostCents, l.PriceCents, l.MarginCents, l.Type, l.BalanceAfter, l.CreatedAt); err != nil {
+		if _, err = tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(l)...); err != nil {
 			return 0, 0, err
 		}
 	}

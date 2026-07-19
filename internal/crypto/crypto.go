@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
@@ -38,6 +39,17 @@ func RandomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// NewID 生成 16 字节 hex 标识符(32 字符),用作各实体的随机主键。
+// crypto/rand.Read 在正常系统上极罕见失败;失败时回退到纳秒时间戳,保证非空与唯一。
+// 统一各包 mustID/storeID/cryptoID 的兜底逻辑,消除逐字符复制的多份实现。
+func NewID() string {
+	id, err := RandomHex(16)
+	if err != nil {
+		return fmt.Sprintf("id-%d", time.Now().UnixNano())
+	}
+	return id
 }
 
 // --- 渠道密钥 AES-GCM ---

@@ -316,6 +316,25 @@ func (s *Service) selectOrdered(ctx context.Context, chs []*model.Channel, strat
 	return out
 }
 
+// chargePostCompletion 在响应/向量已生成后用独立超时 ctx 扣费,避免请求 ctx 因客户端早断取消
+// 导致漏扣(上游已消费 token,本地必须扣款)。统一 Chat/Embeddings/ChatStream 三路径的扣费编排:
+// 5s 超时 ctx + 失败记日志供对账补扣;返回 price/cost 由调用方写入 meta。
+// Charge 内部失败会落 pending_charges 由 billing retry worker 兜底。
+// cacheReadPrice/cacheWritePrice 由调用方传入: chat/stream 传模型缓存价,embeddings 传 0(向量无缓存计费)。
+func (s *Service) chargePostCompletion(sub auth.Subject, requestID, model string, usage canon.Usage,
+	p *model.ModelDef, cacheReadPrice, cacheWritePrice int64, rc resolvedChannel, logTag string) (price, cost int64) {
+	bctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, price, cost, cerr := s.Billing.Charge(bctx, sub.TenantID, sub.UserID, requestID, model, usage,
+		p.InputPriceCentsPerM, p.OutputPriceCentsPerM, cacheReadPrice, cacheWritePrice,
+		rc.inputCost, rc.outputCost, rc.cacheReadCost, rc.cacheWriteCost)
+	if cerr != nil {
+		logging.L().Error(logTag+" charge failed (post-completion, may need reconciliation)",
+			"request_id", requestID, "user_id", sub.UserID, "model", model, "err", cerr.Error())
+	}
+	return price, cost
+}
+
 // Chat 非流式(含多渠道故障转移)。
 func (s *Service) Chat(ctx context.Context, sub auth.Subject, req *canon.Request) (*canon.Response, *Meta, error) {
 	p, channels, err := s.route(ctx, sub, req.Model)
@@ -364,22 +383,13 @@ func (s *Service) Chat(ctx context.Context, sub auth.Subject, req *canon.Request
 			s.Breaker.OnSuccess(ctx, rc.ch.ID)
 		}
 		meta := &Meta{RequestID: reqID, Provider: rc.provider, ChannelID: rc.ch.ID, Usage: resp.Usage}
-		// 用独立超时 ctx 跑计费/记账: 响应虽已生成,但客户端早断会让 request ctx 取消 → 漏扣
-		// (上游已消费 token,本地必须扣款)。Charge 内部失败会落 pending_charges 由 worker 兜底。
-		bctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, price, cost, cerr := s.Billing.Charge(bctx, sub.TenantID, sub.UserID, meta.RequestID, req.Model, resp.Usage,
-			p.InputPriceCentsPerM, p.OutputPriceCentsPerM, p.CacheReadPriceCentsPerM, p.CacheWritePriceCentsPerM,
-			rc.inputCost, rc.outputCost, rc.cacheReadCost, rc.cacheWriteCost)
-		cancel()
-		if cerr != nil {
-			// 请求已消耗上游 token,计费失败必须可见: 记日志供对账补扣,避免静默漏账。
-			logging.L().Error("charge failed (post-completion, may need reconciliation)",
-				"request_id", meta.RequestID, "user_id", sub.UserID, "model", req.Model, "err", cerr.Error())
-		}
-		meta.PriceCents = price
-		meta.CostCents = cost
+		meta.PriceCents, meta.CostCents = s.chargePostCompletion(sub, meta.RequestID, req.Model, resp.Usage, p,
+			p.CacheReadPriceCentsPerM, p.CacheWritePriceCentsPerM, rc, "chat")
 		respJSON, _ := json.Marshal(resp)
-		s.recordUsage(bctx, sub, reqID, req.Model, rc, start, resp.Usage, price, cost, "ok", "", reqJSON, respJSON)
+		// recordUsage 用独立脱离请求的 ctx 落库(防客户端早断取消);不复用 charge 的内部 bctx(已 cancel)。
+		dbctx, dbcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.recordUsage(dbctx, sub, reqID, req.Model, rc, start, resp.Usage, meta.PriceCents, meta.CostCents, "ok", "", reqJSON, respJSON)
+		dbcancel()
 		resp.ID = meta.RequestID
 		return resp, meta, nil
 	}
@@ -406,7 +416,7 @@ func (s *Service) Embeddings(ctx context.Context, sub auth.Subject, modelName st
 	metrics.Inflight.Inc()
 	defer metrics.Inflight.Dec()
 	var lastErr error
-	lastTried := resolvedChannel{}
+	var lastTried resolvedChannel
 	if len(channels) > 0 {
 		lastTried = channels[0]
 	}
@@ -429,18 +439,10 @@ func (s *Service) Embeddings(ctx context.Context, sub auth.Subject, modelName st
 			s.Breaker.OnSuccess(ctx, rc.ch.ID)
 		}
 		meta := &Meta{RequestID: reqID, Provider: rc.provider, ChannelID: rc.ch.ID, Usage: *usage}
-		bctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, price, cost, cerr := s.Billing.Charge(bctx, sub.TenantID, sub.UserID, meta.RequestID, modelName, *usage,
-			p.InputPriceCentsPerM, p.OutputPriceCentsPerM, 0, 0,
-			rc.inputCost, rc.outputCost, 0, 0)
-		cancel()
-		if cerr != nil {
-			logging.L().Error("embeddings charge failed (post-completion)",
-				"request_id", meta.RequestID, "user_id", sub.UserID, "model", modelName, "err", cerr.Error())
-		}
-		meta.PriceCents = price
-		meta.CostCents = cost
-		s.recordUsage(bctx, sub, reqID, modelName, rc, start, *usage, price, cost, "ok", "", nil, nil)
+		meta.PriceCents, meta.CostCents = s.chargePostCompletion(sub, meta.RequestID, modelName, *usage, p, 0, 0, rc, "embeddings")
+		dbctx, dbcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.recordUsage(dbctx, sub, reqID, modelName, rc, start, *usage, meta.PriceCents, meta.CostCents, "ok", "", nil, nil)
+		dbcancel()
 		return vecs, meta, nil
 	}
 	s.recordUsage(ctx, sub, reqID, modelName, lastTried, start, canon.Usage{}, 0, 0, "error", errCompact(lastErr), nil, nil)
@@ -516,26 +518,19 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 		defer func() { _ = recover() }() // 计费 goroutine 不应拖垮进程
 		defer metrics.Inflight.Dec()
 		meta.Usage = pending
-		bctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, price, cost, cerr := s.Billing.Charge(bctx, sub.TenantID, sub.UserID, meta.RequestID, req.Model, pending,
-			p.InputPriceCentsPerM, p.OutputPriceCentsPerM, p.CacheReadPriceCentsPerM, p.CacheWritePriceCentsPerM,
-			picked.inputCost, picked.outputCost, picked.cacheReadCost, picked.cacheWriteCost)
-		if cerr != nil {
-			// 流式计费失败必须可见: 记日志供对账补扣,避免静默漏账。
-			logging.L().Error("stream charge failed (post-completion, may need reconciliation)",
-				"request_id", meta.RequestID, "user_id", sub.UserID, "model", req.Model, "err", cerr.Error())
-		}
-		meta.PriceCents = price
-		meta.CostCents = cost
+		meta.PriceCents, meta.CostCents = s.chargePostCompletion(sub, meta.RequestID, req.Model, pending, p,
+			p.CacheReadPriceCentsPerM, p.CacheWritePriceCentsPerM, picked, "stream")
 		// 流式无完整响应对象,用累积的 delta 文本 + usage 构造响应体快照供请求日志。
 		var respJSON []byte
 		if s.ReqLog.Enabled && s.ReqLog.LogBodies {
 			respJSON, _ = json.Marshal(map[string]any{"content": respText.String(), "usage": pending})
 		}
-		s.recordUsage(bctx, sub, reqID, req.Model, picked, start, pending, price, cost, "ok", "", reqJSON, respJSON)
+		// recordUsage/recordTPM 用独立脱离请求的 ctx 落库(防客户端早断取消)。
+		dbctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.recordUsage(dbctx, sub, reqID, req.Model, picked, start, pending, meta.PriceCents, meta.CostCents, "ok", "", reqJSON, respJSON)
 		// 流式: 中间件在 g.Next() 时还拿不到 token,这里补登 TPM 桶,使流式也纳入限流统计。
-		s.recordTPM(bctx, sub, pending)
+		s.recordTPM(dbctx, sub, pending)
 	}
 
 	go func() {
@@ -833,10 +828,7 @@ func isTransient(err error) bool {
 		strings.Contains(m, "temporary")
 }
 
-func mustID() string {
-	id, _ := crypto.RandomHex(16)
-	return id
-}
+func mustID() string { return crypto.NewID() }
 
 // costOr 模型级成本为 0 时回退到渠道级默认成本(与原 CostForAll 语义一致:未单独配置=用渠道级)。
 func costOr(modelLevel, channelLevel int64) int64 {

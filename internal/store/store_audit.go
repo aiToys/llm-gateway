@@ -20,14 +20,8 @@ func (s *Store) InsertAudit(ctx context.Context, actorID, action, target, ip str
 	return err
 }
 
-// storeID 生成一个随机 hex id(store 包内复用)。
-func storeID() string {
-	id, err := crypto.RandomHex(16)
-	if err != nil {
-		return "id-" + time.Now().Format("20060102150405")
-	}
-	return id
-}
+// storeID 生成一个随机 hex id(store 包内复用;逻辑集中在 crypto.NewID)。
+func storeID() string { return crypto.NewID() }
 
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]*model.AuditLog, error) {
 	limit = ClampLimit(limit, 200, 1000)

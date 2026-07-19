@@ -242,11 +242,5 @@ func (s *Service) Adjust(ctx context.Context, tenantID, userID string, deltaCent
 	return nb, err
 }
 
-func mustID() string {
-	id, err := crypto.RandomHex(16)
-	if err != nil {
-		// 极端情况;不应发生。
-		return fmt.Sprintf("id-%d", time.Now().UnixNano())
-	}
-	return id
-}
+// mustID 生成随机 hex 主键(逻辑集中在 crypto.NewID,统一兜底)。
+func mustID() string { return crypto.NewID() }

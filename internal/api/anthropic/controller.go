@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/aitoys/llm-gateway/internal/api/common"
 	"github.com/aitoys/llm-gateway/internal/auth"
@@ -488,16 +487,17 @@ func mapStop(finish string) string {
 
 // writeErr 把 relay 错误映射为 Anthropic 风格的 HTTP 响应(顶层 type:"error")。
 // 已知业务哨兵透出明确类型;其余(含上游响应体)脱敏为通用错误,避免泄露上游内部信息。
-// 用 errors.Is 识别哨兵(容忍 %w 包装),回退到字符串相等以兼容历史路径。
+// 用 errors.Is 识别哨兵(容忍 %w 包装)。relay 哨兵均为 errors.New 且直接返回,无字符串重构造,
+// 故无需 err.Error()==sentinel.Error() 的脆弱字符串回退(被包装/本地化即失效)。
 func (c *Controller) writeErr(g *gin.Context, err error) {
 	switch {
-	case errors.Is(err, relay.ErrModelNotFound) || err.Error() == relay.ErrModelNotFound.Error():
+	case errors.Is(err, relay.ErrModelNotFound):
 		common.AnthropicError(g, http.StatusNotFound, "not_found_error", "model not found or disabled")
-	case errors.Is(err, relay.ErrNoChannel) || err.Error() == relay.ErrNoChannel.Error():
+	case errors.Is(err, relay.ErrNoChannel):
 		common.AnthropicError(g, http.StatusServiceUnavailable, "api_error", "no available channel for model")
-	case errors.Is(err, relay.ErrInsufficientBal) || err.Error() == relay.ErrInsufficientBal.Error():
+	case errors.Is(err, relay.ErrInsufficientBal):
 		common.AnthropicError(g, http.StatusPaymentRequired, "invalid_request_error", "insufficient balance")
-	case errors.Is(err, relay.ErrQuotaExceeded) || err.Error() == relay.ErrQuotaExceeded.Error():
+	case errors.Is(err, relay.ErrQuotaExceeded):
 		common.AnthropicError(g, http.StatusTooManyRequests, "rate_limit_error", "usage quota exceeded")
 	default:
 		// 上游错误脱敏: 完整 err 仅记服务端日志,客户端只收到通用提示。
@@ -506,5 +506,3 @@ func (c *Controller) writeErr(g *gin.Context, err error) {
 		common.AnthropicError(g, http.StatusBadGateway, "api_error", "upstream request failed")
 	}
 }
-
-var _ = time.Now

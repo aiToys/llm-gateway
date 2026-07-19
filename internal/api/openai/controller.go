@@ -192,13 +192,13 @@ func (c *Controller) Models(g *gin.Context) {
 // 避免把上游网关内部信息 / trace id / 鉴权调试信息泄露给客户端。
 func (c *Controller) writeRelayErr(g *gin.Context, err error) {
 	switch {
-	case errors.Is(err, relay.ErrModelNotFound) || err.Error() == relay.ErrModelNotFound.Error():
+	case errors.Is(err, relay.ErrModelNotFound):
 		common.Error(g, http.StatusNotFound, "model_not_found", "model not found or disabled")
-	case errors.Is(err, relay.ErrNoChannel) || err.Error() == relay.ErrNoChannel.Error():
+	case errors.Is(err, relay.ErrNoChannel):
 		common.Error(g, http.StatusServiceUnavailable, "no_channel", "no available channel for model")
-	case errors.Is(err, relay.ErrInsufficientBal) || err.Error() == relay.ErrInsufficientBal.Error():
+	case errors.Is(err, relay.ErrInsufficientBal):
 		common.Error(g, http.StatusPaymentRequired, "insufficient_balance", "insufficient balance")
-	case errors.Is(err, relay.ErrQuotaExceeded) || err.Error() == relay.ErrQuotaExceeded.Error():
+	case errors.Is(err, relay.ErrQuotaExceeded):
 		common.Error(g, http.StatusTooManyRequests, "quota_exceeded", "usage quota exceeded")
 	default:
 		// 上游错误脱敏: 完整 err 仅记服务端日志,客户端只收到通用提示。

@@ -17,6 +17,16 @@ func nonNilStrSlice(s []string) []string {
 	return s
 }
 
+// apiKeyCols api_keys 表查询列(19 列,GetAPIKeyByHash/GetAPIKeyByID/ListAPIKeys 复用);
+// 与 scanChannel 同一模式:列名集中,避免 3 处 SELECT/Scan 序列漂移。
+const apiKeyCols = "id,tenant_id,user_id,key_prefix,key_hash,name,scopes,models,rpm_limit,tpm_limit,daily_request_limit,monthly_request_limit,daily_token_limit,monthly_token_limit,ip_whitelist,expires_at,last_used_at,status,created_at" //nolint:gosec // 列名常量,非硬编码密钥(gosec G101 对含 Key 的标识符误报)
+
+// scanAPIKey 把一行扫描到 *model.APIKey(与 apiKeyCols 列序对应)。
+func scanAPIKey(scan func(...any) error, k *model.APIKey) error {
+	return scan(&k.ID, &k.TenantID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Scopes, &k.Models,
+		&k.RPMLimit, &k.TPMLimit, &k.DailyRequestLimit, &k.MonthlyRequestLimit, &k.DailyTokenLimit, &k.MonthlyTokenLimit, &k.IPWhitelist, &k.ExpiresAt, &k.LastUsedAt, &k.Status, &k.CreatedAt)
+}
+
 func (s *Store) CreateAPIKey(ctx context.Context, k *model.APIKey) error {
 	_, err := s.Pool.Exec(ctx,
 		`INSERT INTO api_keys(id,tenant_id,user_id,key_prefix,key_hash,name,scopes,models,rpm_limit,tpm_limit,daily_request_limit,monthly_request_limit,daily_token_limit,monthly_token_limit,ip_whitelist,expires_at,status,created_at)
@@ -30,12 +40,8 @@ func (s *Store) CreateAPIKey(ctx context.Context, k *model.APIKey) error {
 // GetAPIKeyByHash 按 hash 查询(用于鉴权)。
 func (s *Store) GetAPIKeyByHash(ctx context.Context, hash string) (*model.APIKey, error) {
 	k := &model.APIKey{}
-	err := s.Pool.QueryRow(ctx,
-		`SELECT id,tenant_id,user_id,key_prefix,key_hash,name,scopes,models,rpm_limit,tpm_limit,daily_request_limit,monthly_request_limit,daily_token_limit,monthly_token_limit,ip_whitelist,expires_at,last_used_at,status,created_at
-		 FROM api_keys WHERE key_hash=$1 AND status='active'`, hash).
-		Scan(&k.ID, &k.TenantID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Scopes, &k.Models,
-			&k.RPMLimit, &k.TPMLimit, &k.DailyRequestLimit, &k.MonthlyRequestLimit, &k.DailyTokenLimit, &k.MonthlyTokenLimit, &k.IPWhitelist, &k.ExpiresAt, &k.LastUsedAt, &k.Status, &k.CreatedAt)
-	if err != nil {
+	if err := scanAPIKey(s.Pool.QueryRow(ctx,
+		`SELECT `+apiKeyCols+` FROM api_keys WHERE key_hash=$1 AND status='active'`, hash).Scan, k); err != nil {
 		return nil, err
 	}
 	return k, nil
@@ -49,12 +55,8 @@ func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
 // GetAPIKeyByID 按 id 取密钥(含 models 白名单,供 /v1/models 过滤)。
 func (s *Store) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey, error) {
 	k := &model.APIKey{}
-	err := s.Pool.QueryRow(ctx,
-		`SELECT id,tenant_id,user_id,key_prefix,key_hash,name,scopes,models,rpm_limit,tpm_limit,daily_request_limit,monthly_request_limit,daily_token_limit,monthly_token_limit,ip_whitelist,expires_at,last_used_at,status,created_at
-		 FROM api_keys WHERE id=$1`, id).
-		Scan(&k.ID, &k.TenantID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Scopes, &k.Models,
-			&k.RPMLimit, &k.TPMLimit, &k.DailyRequestLimit, &k.MonthlyRequestLimit, &k.DailyTokenLimit, &k.MonthlyTokenLimit, &k.IPWhitelist, &k.ExpiresAt, &k.LastUsedAt, &k.Status, &k.CreatedAt)
-	if err != nil {
+	if err := scanAPIKey(s.Pool.QueryRow(ctx,
+		`SELECT `+apiKeyCols+` FROM api_keys WHERE id=$1`, id).Scan, k); err != nil {
 		return nil, err
 	}
 	return k, nil
@@ -62,8 +64,7 @@ func (s *Store) GetAPIKeyByID(ctx context.Context, id string) (*model.APIKey, er
 
 func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]*model.APIKey, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id,tenant_id,user_id,key_prefix,key_hash,name,scopes,models,rpm_limit,tpm_limit,daily_request_limit,monthly_request_limit,daily_token_limit,monthly_token_limit,ip_whitelist,expires_at,last_used_at,status,created_at
-		 FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC`, userID)
+		`SELECT `+apiKeyCols+` FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +72,7 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]*model.APIKey
 	var out []*model.APIKey
 	for rows.Next() {
 		k := &model.APIKey{}
-		if err := rows.Scan(&k.ID, &k.TenantID, &k.UserID, &k.KeyPrefix, &k.KeyHash, &k.Name, &k.Scopes, &k.Models,
-			&k.RPMLimit, &k.TPMLimit, &k.DailyRequestLimit, &k.MonthlyRequestLimit, &k.DailyTokenLimit, &k.MonthlyTokenLimit, &k.IPWhitelist, &k.ExpiresAt, &k.LastUsedAt, &k.Status, &k.CreatedAt); err != nil {
+		if err := scanAPIKey(rows.Scan, k); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -80,11 +80,12 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]*model.APIKey
 	return out, rows.Err()
 }
 
-// RevokeAPIKey 吊销密钥并返回其 hash(供调用方清理鉴权缓存)。
-func (s *Store) RevokeAPIKey(ctx context.Context, id, userID string) (string, error) {
+// revokeAPIKeyWhere 按 WHERE 条件吊销密钥,返回 key_hash 供清缓存。
+// 三种 scope(本人/租户/全局)仅 WHERE 子句不同,公共的 UPDATE+RETURNING+ErrNoRows→ErrNotFound 集中于此。
+func (s *Store) revokeAPIKeyWhere(ctx context.Context, where string, args ...any) (string, error) {
 	var hash string
 	err := s.Pool.QueryRow(ctx,
-		`UPDATE api_keys SET status='revoked' WHERE id=$1 AND user_id=$2 RETURNING key_hash`, id, userID).Scan(&hash)
+		`UPDATE api_keys SET status='revoked' WHERE `+where+` RETURNING key_hash`, args...).Scan(&hash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound
@@ -92,35 +93,22 @@ func (s *Store) RevokeAPIKey(ctx context.Context, id, userID string) (string, er
 		return "", err
 	}
 	return hash, nil
+}
+
+// RevokeAPIKey 吊销密钥并返回其 hash(供调用方清理鉴权缓存)。
+func (s *Store) RevokeAPIKey(ctx context.Context, id, userID string) (string, error) {
+	return s.revokeAPIKeyWhere(ctx, "id=$1 AND user_id=$2", id, userID)
 }
 
 // RevokeAPIKeyScoped 按租户 scope 吊销密钥(租户管理员吊销本租户任意成员的 key,不限 user_id)。
 // 返回 key_hash 供调用方清鉴权缓存;非本租户或不存在返回 ErrNotFound(不泄露是否存在)。
 func (s *Store) RevokeAPIKeyScoped(ctx context.Context, id, tenantID string) (string, error) {
-	var hash string
-	err := s.Pool.QueryRow(ctx,
-		`UPDATE api_keys SET status='revoked' WHERE id=$1 AND tenant_id=$2 RETURNING key_hash`, id, tenantID).Scan(&hash)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrNotFound
-		}
-		return "", err
-	}
-	return hash, nil
+	return s.revokeAPIKeyWhere(ctx, "id=$1 AND tenant_id=$2", id, tenantID)
 }
 
 // RevokeAPIKeyAny 按 id 吊销密钥(不限租户,供平台管理员);返回 hash 供清缓存。
 func (s *Store) RevokeAPIKeyAny(ctx context.Context, id string) (string, error) {
-	var hash string
-	err := s.Pool.QueryRow(ctx,
-		`UPDATE api_keys SET status='revoked' WHERE id=$1 RETURNING key_hash`, id).Scan(&hash)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrNotFound
-		}
-		return "", err
-	}
-	return hash, nil
+	return s.revokeAPIKeyWhere(ctx, "id=$1", id)
 }
 
 // TenantAPIKey 租户视角的密钥行(附属主用户邮箱,便于管理员识别归属与统一吊销)。

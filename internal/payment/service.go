@@ -127,8 +127,12 @@ func (s *Service) OrderStatus(ctx context.Context, userID, outTradeNo string) (*
 	if o.Status == model.PaymentStatusPending && time.Now().Before(o.ExpiresAt) {
 		if p, ok := s.providers[o.Provider]; ok {
 			if paid, txnID, qerr := p.QueryOrder(outTradeNo); qerr == nil && paid {
-				_ = s.settle(ctx, o, txnID) // 幂等: 内部 MarkPaid 保证只入账一次
-				o, _ = s.Store.GetPaymentOrderByTradeNo(ctx, outTradeNo) // 刷新状态返回
+				// 入账走独立超时 ctx:此接口由前端轮询调用,客户端断连会取消请求 ctx,
+				// 若 settle 共用请求 ctx 会中断进行中的 PG 事务 → 资金不一致(与 HandleNotify 同源风险)。
+				sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = s.settle(sctx, o, txnID) // 幂等: 内部 MarkPaid 保证只入账一次
+				o, _ = s.Store.GetPaymentOrderByTradeNo(sctx, outTradeNo) // 刷新状态返回
+				cancel()
 			}
 		}
 	}
@@ -207,7 +211,10 @@ func (s *Service) CloseExpired(ctx context.Context) {
 				continue
 			}
 			if paid {
-				_ = s.settle(ctx, o, txnID)
+				if err := s.settle(ctx, o, txnID); err != nil {
+					// 已支付但入账失败:订单保持 pending 不关单,留下轮重试;记日志供对账补扣。
+					logging.From(ctx).Error("settle paid order failed in close-expired sweep", "out_trade_no", o.OutTradeNo, "err", err)
+				}
 				continue
 			}
 		}
@@ -226,10 +233,4 @@ func newOutTradeNo() (string, error) {
 	return fmt.Sprintf("GW%d%s", time.Now().UnixNano(), r), nil
 }
 
-func mustID() string {
-	id, err := crypto.RandomHex(16)
-	if err != nil {
-		return fmt.Sprintf("id-%d", time.Now().UnixNano())
-	}
-	return id
-}
+func mustID() string { return crypto.NewID() }

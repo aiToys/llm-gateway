@@ -130,10 +130,7 @@ async function send(reuseText, reuseImgs) {
 
   let userContent
   if (imgs.length) {
-    const parts = []
-    if (text) parts.push({ type: 'text', text })
-    for (const im of imgs) parts.push({ type: 'image_url', image_url: { url: im.url } })
-    userContent = parts
+    userContent = buildParts(text, imgs)
     messages.value.push({ role: 'user', content: text || '(图片)', imgs })
   } else {
     userContent = text
@@ -176,13 +173,19 @@ function buildHistory(userContent) {
   const usable = messages.value.filter(m => !m.isError)
   return usable.slice(0, -1).map(m => {
     if (m.imgs && m.imgs.length) {
-      const parts = []
-      if (m.content) parts.push({ type: 'text', text: m.content })
-      for (const im of m.imgs) parts.push({ type: 'image_url', image_url: { url: im.url } })
-      return { role: m.role, content: parts }
+      return { role: m.role, content: buildParts(m.content, m.imgs) }
     }
     return { role: m.role, content: m.content }
   }).concat([{ role: 'user', content: userContent }])
+}
+
+// buildParts 组装多模态消息内容(OpenAI vision 格式): 文本在前 + 图片/文件附件。
+// send 与 buildHistory 共用,避免两处手写 parts 拼接导致格式漂移。
+function buildParts(text, imgs) {
+  const parts = []
+  if (text) parts.push({ type: 'text', text })
+  for (const im of imgs) parts.push({ type: 'image_url', image_url: { url: im.url } })
+  return parts
 }
 
 // classifyChatError 把网关错误响应归为对用户有行动指引的中文提示。
@@ -232,7 +235,10 @@ async function streamOnce(userContent, asst) {
       try {
         const chunk = JSON.parse(payload)
         if (chunk.choices && chunk.choices[0]) asst.content += chunk.choices[0].delta?.content || ''
-      } catch {}
+      } catch {
+        // SSE 偶有非 JSON 行(心跳/事件帧),跳过但记录便于上游格式异常时排障。
+        console.debug('skip sse line', payload)
+      }
       await scroll()
     }
   }

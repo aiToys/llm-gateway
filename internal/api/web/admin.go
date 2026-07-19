@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/csv"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/aitoys/llm-gateway/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // adminScope 返回管理数据范围: 平台管理员返回 ""(全局);租户管理员返回其 TenantID。
@@ -596,8 +598,10 @@ func (s *Server) adminRemoveChannelModel(g *gin.Context) {
 }
 
 // isUniqueViolation 判断是否为 PG 唯一约束冲突(SQLSTATE 23505),用于挂载模型幂等处理。
+// 用 errors.As(*pgconn.PgError) 精确匹配 SQLSTATE,避免依赖错误消息文本(被包装/本地化即失效)。
 func isUniqueViolation(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "23505")
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // updateChannelRoutingReq 更新渠道级路由配置(优先级/权重/供应商默认成本)。
