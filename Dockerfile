@@ -12,7 +12,7 @@ RUN go build -ldflags="-s -w" -o /out/gateway ./cmd/gateway
 RUN go build -ldflags="-s -w" -o /out/edge ./cmd/edge
 
 # ---------- Stage 2: 用户端前端 ----------
-FROM node:20-alpine AS user-web
+FROM node:26-alpine AS user-web
 WORKDIR /web
 ARG NPM_REGISTRY=https://registry.npmjs.org
 COPY web/user/package.json web/user/package-lock.json* ./
@@ -22,7 +22,7 @@ COPY web/user/ ./
 RUN npm run build
 
 # ---------- Stage 3: 管理端前端 ----------
-FROM node:20-alpine AS admin-web
+FROM node:26-alpine AS admin-web
 WORKDIR /web
 ARG NPM_REGISTRY=https://registry.npmjs.org
 COPY web/admin/package.json web/admin/package-lock.json* ./
