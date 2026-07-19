@@ -1,0 +1,53 @@
+# Binaries
+/bin/
+/gateway
+*.exe
+
+# Build artifacts
+/dist/
+/web/user/dist/
+/web/admin/dist/
+
+# Local config / data
+/config.local.yaml
+/data/
+!data/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Go
+vendor/
+
+# Node
+node_modules/
+web/*/node_modules/
+docs-site/node_modules/
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/
+
+# Test artifacts
+test-results/
+playwright-report/
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+
+# 工具产物
+.playwright-mcp/
+
+# Env
+.env
+.env.local
+
+# 设计稿/参考图(不入库,仅本地)
+home-final.png
+models-final.png
+models-13final.png
+user-home.png
+user-home-pro.png

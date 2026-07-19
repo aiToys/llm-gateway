@@ -1,0 +1,101 @@
+# LLM Gateway 配置示例。复制为 config.yaml 或 config.local.yaml 后修改。
+# 环境变量以 GATEWAY_ 前缀覆盖，嵌套用 __ 例: GATEWAY_POSTGRES__HOST
+
+# 开发模式: true 时放宽密钥校验、放开模拟充值/注册、CORS 放行任意 Origin。
+# 生产部署务必设为 false(默认),并填写下方真实密钥,否则启动会因"弱密钥"被拒绝。
+dev: true
+
+# 结构化日志(log/slog)。format=json 便于接入 ELK/Loki;level 控制详细度。
+log:
+  level: "info"   # debug | info | warn | error
+  format: "text"  # json | text
+
+server:
+  addr: ":8080"
+  public_url: "http://localhost:8080"
+  # 允许跨域访问的 Origin 列表(浏览器端调用时需要)。留空=仅同源(不发送 CORS 头)。
+  # 例: ["https://app.example.com"]
+  cors_origins: []
+
+postgres:
+  host: "localhost"
+  port: 5432
+  user: "gateway"
+  password: "gateway"
+  database: "gateway"
+  sslmode: "disable"
+  max_conns: 20
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+auth:
+  # 生产必须改为唯一且足够长的随机串(建议 >= 32 字节)。生成: openssl rand -hex 32
+  jwt_secret: "change-me-in-production-please-use-32-bytes-or-more"
+  access_ttl: "15m"
+  refresh_ttl: "168h" # 7d
+  # 渠道密钥加密主密钥 (32 字节 hex)。生产必须改!生成: openssl rand -hex 32
+  channel_key_master: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  # 是否放开自助注册 /api/auth/register。生产建议 false(默认),由管理员建号。
+  allow_signup: true
+  # 平台超级管理员引导: 启动时若该 email 不存在则创建为 platform_admin(跨租户管理)。
+  # 自助注册只能得到租户级 admin,首次部署需由此或 --seed 获得平台管理权。留空则不引导。
+  bootstrap_admin:
+    email: ""
+    password: ""
+
+files:
+  storage: "local"           # local | s3 (s3 后续支持)
+  local_root: "./data/files"
+  base_url: "http://localhost:8080"
+
+billing:
+  # 余额不足时的兜底策略
+  min_balance_cents: 0
+  # 无 usage 时的字符估算: 1 token ≈ N 字符(中文/英文混合经验值)
+  chars_per_token: 2
+
+# 请求/响应原文日志(生产排障 / 合规审计)。默认关闭(隐私与存储考量),按需开启。
+req_log:
+  enabled: false          # 总开关
+  sample_rate: 1.0        # 采样率 0~1,1=全量(失败请求一律落库,不受采样限制)
+  max_body_bytes: 32768   # 请求/响应体截断长度(字节),超出截断
+  retain_days: 7          # 保留天数,超期由后台 worker 自动清理
+  log_bodies: true        # false=只记元信息不记原文(纯合规统计场景)
+
+# 开发期默认使用 Mock 供应商。生产环境在管理端配置真实渠道。
+defaults:
+  default_provider: "mock"
+
+# 网关接入点(数据面/edge)配置。
+# addr 留空: 接入点与控制面同进程同端口(默认,适合单实例/开发)。
+# addr 设值(且与 server.addr 不同): 把 /v1 推理接入点独立到单独端口,
+#   便于公网只暴露接入点、管理端内网隔离; 接入点无状态可横向扩展。
+edge:
+  addr: ""          # 例: ":8090"
+  read_timeout: ""  # 流式默认不限
+  write_timeout: "" # SSE 默认不限
+
+# 支付(预付充值)。生产环境用户必须能充值,否则余额恒为 0、所有请求被预付拦截。
+#   mock=true: 仅用 mock provider,无需任何商户资质(开发/测试打通全链路用)。
+#   启用真实渠道前,先在对应平台申请商户号/密钥并填全字段(生产启动会校验完整性)。
+payment:
+  base_url: "http://localhost:8080"  # 站点对外根 URL,用于拼异步回调地址;生产需为公网可达 https
+  expires_minutes: 15                 # 订单有效期,超时自动关单
+  mock: false
+  wechat:
+    enabled: false
+    appid: ""           # 应用 AppID
+    mchid: ""           # 商户号
+    mch_serial_no: ""   # 商户证书序列号
+    private_key: ""     # apiclient_key.pem 的文件路径,或其 PEM 文本
+    api_v3_key: ""      # APIv3 密钥(回调解密用)
+  alipay:
+    enabled: false
+    appid: ""
+    private_key: ""       # 应用私钥 PEM 文本
+    alipay_public_key: "" # 支付宝公钥 PEM 文本
+    sandbox: false        # true=沙箱环境
+

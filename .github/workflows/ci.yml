@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      # 项目已迁移至 golangci-lint v2(见 .golangci.yml 顶层 version: 2)。
+      # v2 要求 action v6+ 且 version 形如 v2.x;沿用本地相同的 v2.12.2,避免 CI/本地配置漂移。
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+
+  backend:
+    name: Go (${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.26"]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway
+          POSTGRES_DB: gateway
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gateway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - run: go mod download
+      - run: go vet ./...
+      - name: Build
+        run: go build ./...
+      - name: Test
+        env:
+          GATEWAY_POSTGRES__HOST: localhost
+          GATEWAY_POSTGRES__USER: gateway
+          GATEWAY_POSTGRES__PASSWORD: gateway
+          GATEWAY_POSTGRES__DATABASE: gateway
+          GATEWAY_REDIS__ADDR: localhost:6379
+        run: go test ./... -race -count=1
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            web/user/package-lock.json
+            web/admin/package-lock.json
+      - name: Build user app
+        working-directory: web/user
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npm run build
+      - name: Build admin app
+        working-directory: web/admin
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npm run build
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway
+          POSTGRES_DB: gateway
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gateway"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # e2e 走 MountSPAs serve 的前端 dist,必须先 build(与 frontend job 独立,因 artifact 不共享)。
+      - name: Build frontend dist (user + admin)
+        run: |
+          for app in user admin; do
+            (cd "web/$app" && (npm ci || npm install --no-audit --no-fund) && npm run build)
+          done
+      - name: Build gateway binary
+        run: go build -o /tmp/gateway ./cmd/gateway
+      - name: Write CI config (dev 模式,密钥自动用安全默认)
+        run: |
+          printf '%s\n' \
+            'dev: true' \
+            'postgres:' '  host: localhost' '  user: gateway' '  password: gateway' '  database: gateway' \
+            'redis:' '  addr: localhost:6379' \
+            'server:' '  addr: ":8088"' > /tmp/ci.yaml
+          cat /tmp/ci.yaml
+      # 启动时自动 migrate up;seed 单独跑灌演示数据(admin@demo.com / demo@demo.com 等)。
+      - name: Seed demo data
+        run: /tmp/gateway -seed -config /tmp/ci.yaml
+      - name: Start gateway & wait ready
+        run: |
+          nohup /tmp/gateway -config /tmp/ci.yaml > /tmp/gateway.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8088/healthz >/dev/null; then echo "gateway ready"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::gateway failed to start"; cat /tmp/gateway.log; exit 1
+      - name: Install Playwright
+        working-directory: tests/e2e
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run Playwright tests
+        working-directory: tests/e2e
+        env:
+          BASE_URL: http://localhost:8088
+        run: npx playwright test --reporter=line
+      - name: Upload gateway log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-log
+          path: /tmp/gateway.log

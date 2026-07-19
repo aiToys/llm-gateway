@@ -1,0 +1,36 @@
+# 依赖与构建产物(各阶段自己产生,无需进 build context)
+**/node_modules
+**/dist
+**/.vitepress/dist
+**/.vitepress/cache
+
+# 本地二进制与数据
+bin/
+data/
+
+# VCS 与编辑器
+.git
+.gitignore
+.DS_Store
+.idea
+.vscode
+
+# 文档/示例/测试(不参与镜像构建)
+docs/
+docs-site/
+tests/
+*.md
+!config.example.yaml
+
+# 截图与图片
+*.png
+*.jpg
+
+# 本地配置与日志
+config.local.yaml
+config.yaml
+*.log
+
+# 工具产物
+docs/superpowers/
+.playwright-mcp/

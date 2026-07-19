@@ -1,0 +1,2 @@
+ALTER TABLE models ADD COLUMN IF NOT EXISTS modality text NOT NULL DEFAULT 'text';
+ALTER TABLE models DROP COLUMN IF EXISTS capabilities;

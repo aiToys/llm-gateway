@@ -1,0 +1,42 @@
+# golangci-lint 配置(v2 格式,golangci-lint >= v2.0)。运行: golangci-lint run ./...
+# Makefile lint 目标会在 golangci-lint 已安装时自动使用。
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+  enable:
+    - errcheck        # 检查未处理的错误
+    - govet           # go vet
+    - ineffassign     # 无效赋值
+    - staticcheck     # 综合静态分析
+    - unused          # 未使用代码
+    - misspell        # 拼写
+    - gosec           # 安全
+    - gocritic        # 性能/风格启发
+    # revive(风格)暂未启用: 其 exported 规则要求所有导出符号带 godoc 注释,
+    # 与现有代码冲突较大、噪音多于收益。待注释规范化后再启用。
+  settings:
+    gosec:
+      excludes:
+        - G104  # 未检查错误已由 errcheck 覆盖,且本项目多处显式 _ = 忽略是故意的
+        - G301  # 目录权限 0o755 是文件存储标准权限,非安全问题
+    errcheck:
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+  exclusions:
+    rules:
+      # 测试代码放宽
+      - path: _test\.go
+        linters: [gosec, gocritic, errcheck]
+      # cmd 下的 main 包允许较宽松
+      - path: cmd/
+        linters: [gocritic]
+      # defer Close/Rollback 是 Go 惯用资源清理,其错误无需处理。
+      - linters: [errcheck]
+        source: 'defer .+\.(Close|Rollback)\('
+      # 向 http.ResponseWriter 写响应体(fmt.Fprint/Fprintf),写入失败也无法有意义地处理。
+      - linters: [errcheck]
+        source: 'fmt\.(Fprint|Fprintf)\(w[,:]'

@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      GATEWAY_POSTGRES__HOST: postgres
+      GATEWAY_REDIS__ADDR: redis:6379
+      GATEWAY_SERVER__ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    # 默认启动即服务(入口会自动迁移并灌入种子数据见下)
+    command: ["-config", "/app/config.yaml"]
+
+volumes:
+  pgdata:
+  redisdata:

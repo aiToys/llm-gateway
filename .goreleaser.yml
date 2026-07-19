@@ -1,0 +1,68 @@
+# GoReleaser 配置:tag 触发时构建多架构二进制 + Docker 镜像。
+# 前端产物由 before.hooks 预构建(go:embed/SPA 托管需要 dist 存在)。
+version: 2
+
+project_name: llm-gateway
+
+before:
+  hooks:
+    - go mod tidy
+    - make build-web
+
+builds:
+  - id: gateway
+    main: ./cmd/gateway
+    binary: gateway
+    env: [CGO_ENABLED=0]
+    targets: [linux_amd64, linux_arm64, darwin_amd64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/aitoys/llm-gateway/internal/version.Version={{.Version}}
+  - id: edge
+    main: ./cmd/edge
+    binary: edge
+    env: [CGO_ENABLED=0]
+    targets: [linux_amd64, linux_arm64, darwin_amd64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/aitoys/llm-gateway/internal/version.Version={{.Version}}
+
+archives:
+  - ids: [gateway, edge]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - config.example.yaml
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-dev'
+
+dockers:
+  - id: gateway-linux-amd64
+    ids: [gateway]
+    goos: linux
+    goarch: amd64
+    use: buildx
+    image_templates:
+      - "ghcr.io/aitoys/llm-gateway:{{ .Version }}-amd64"
+      - "ghcr.io/aitoys/llm-gateway:latest-amd64"
+    dockerfile: Dockerfile
+    skip_push: true
+    build_flag_templates:
+      - "--platform=linux/amd64"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'Merge pull request'
+      - 'Merge branch'
