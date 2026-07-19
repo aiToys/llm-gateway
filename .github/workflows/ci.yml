@@ -18,7 +18,7 @@ jobs:
           cache: true
       # 项目已迁移至 golangci-lint v2(见 .golangci.yml 顶层 version: 2)。
       # v2 要求 action v6+ 且 version 形如 v2.x;沿用本地相同的 v2.12.2,避免 CI/本地配置漂移。
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
 
