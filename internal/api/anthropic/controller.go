@@ -4,7 +4,6 @@ package anthropic
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"github.com/aitoys/llm-gateway/internal/api/common"
 	"github.com/aitoys/llm-gateway/internal/auth"
 	"github.com/aitoys/llm-gateway/internal/canon"
-	"github.com/aitoys/llm-gateway/internal/logging"
 	"github.com/aitoys/llm-gateway/internal/relay"
 	"github.com/gin-gonic/gin"
 )
@@ -133,6 +131,9 @@ func (c *Controller) Messages(g *gin.Context) {
 		return
 	}
 	g.Header("X-Request-Id", meta.RequestID)
+	// 非流式:把 token 用量交给限流中间件后置 hook 计入 TPM 桶(与 OpenAI 入口一致);
+	// 否则 Anthropic 非流式请求完全绕过 TPM 限流。
+	g.Set("rl_tokens", int64(meta.Usage.TotalTokens))
 	g.JSON(http.StatusOK, fromCanon(resp))
 }
 
@@ -226,6 +227,18 @@ func (c *Controller) stream(g *gin.Context, sub auth.Subject, req *canon.Request
 				if first {
 					writeSSE(w, "event: message_start\n", fmt.Sprintf(`{"type":"message_start","message":{"id":%q,"type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"usage":{"input_tokens":0,"output_tokens":0}}}`, meta.RequestID, req.Model))
 					first = false
+				}
+				// 上游流中途出错:发 Anthropic error 事件,不伪造 end_turn(否则客户端误以为成功)。
+				// 标记 finished 抑制 !ok 兜底再补发 message_delta/message_stop。
+				if chunk.StreamError != "" {
+					errPayload, _ := json.Marshal(map[string]any{
+						"type":  "error",
+						"error": map[string]any{"type": "upstream_stream_error", "message": chunk.StreamError},
+					})
+					fmt.Fprintf(w, "event: error\ndata: %s\n\n", errPayload)
+					g.Writer.Flush()
+					finished = true
+					return false
 				}
 				// 累计 usage(末帧覆盖;流首 message_start 暂以 0 占位,真实值在 message_delta 补全)。
 				if chunk.Usage != nil {
@@ -524,38 +537,7 @@ func mapStop(finish string) string {
 	return "end_turn"
 }
 
-// writeErr 把 relay 错误映射为 Anthropic 风格的 HTTP 响应(顶层 type:"error")。
-// 已知业务哨兵透出明确类型;其余(含上游响应体)脱敏为通用错误,避免泄露上游内部信息。
-// 用 errors.Is 识别哨兵(容忍 %w 包装)。relay 哨兵均为 errors.New 且直接返回,无字符串重构造,
-// 故无需 err.Error()==sentinel.Error() 的脆弱字符串回退(被包装/本地化即失效)。
+// writeErr 把 relay 错误映射为 Anthropic 风格响应(委托 common 统一实现)。
 func (c *Controller) writeErr(g *gin.Context, err error) {
-	// 上游 4xx/5xx 透传: 开关开启时原样回写上游 status code + body + Retry-After,
-	// 让智能客户端据真实错误(429/529 等)自行退避重试;关闭则走下方 default 脱敏为 502。
-	var ue *canon.UpstreamError
-	if errors.As(err, &ue) && c.Relay != nil && c.Relay.PassthroughUpstreamErrors {
-		if ue.RetryAfter != "" {
-			g.Header("Retry-After", ue.RetryAfter)
-		}
-		ct := ue.ContentType
-		if ct == "" {
-			ct = "application/json"
-		}
-		g.Data(ue.StatusCode, ct, ue.Body)
-		return
-	}
-	switch {
-	case errors.Is(err, relay.ErrModelNotFound):
-		common.AnthropicError(g, http.StatusNotFound, "not_found_error", "model not found or disabled")
-	case errors.Is(err, relay.ErrNoChannel):
-		common.AnthropicError(g, http.StatusServiceUnavailable, "api_error", "no available channel for model")
-	case errors.Is(err, relay.ErrInsufficientBal):
-		common.AnthropicError(g, http.StatusPaymentRequired, "invalid_request_error", "insufficient balance")
-	case errors.Is(err, relay.ErrQuotaExceeded):
-		common.AnthropicError(g, http.StatusTooManyRequests, "rate_limit_error", "usage quota exceeded")
-	default:
-		// 上游错误脱敏: 完整 err 仅记服务端日志,客户端只收到通用提示。
-		logging.L().Warn("relay upstream error",
-			"req_id", g.GetString("request_id"), "err", err.Error())
-		common.AnthropicError(g, http.StatusBadGateway, "api_error", "upstream request failed")
-	}
+	common.WriteRelayError(g, err, c.Relay != nil && c.Relay.PassthroughUpstreamErrors, common.StyleAnthropic)
 }

@@ -112,6 +112,11 @@ func (s *Service) route(ctx context.Context, sub auth.Subject, modelName string)
 		if s.DefaultProvider == "" {
 			return nil, nil, ErrNoChannel
 		}
+		// fallback 仅对不验 key 的 provider(如 mock)有意义:真实 provider 无 APIKey 会 401,
+		// 且 OnFailure 会反复熔断这个不存在的 fallback 渠道,污染可用性统计。无真实渠道时诚实地返回 ErrNoChannel。
+		if dp := s.Providers.Get(s.DefaultProvider); dp == nil || dp.Name() != "mock" {
+			return nil, nil, ErrNoChannel
+		}
 		// fallback 渠道 ID 带上模型名,使熔断器按模型隔离——否则一个模型把 fallback 打挂会牵连所有走默认 provider 的模型。
 		return p, []resolvedChannel{{
 			ch:       &provider.Channel{ID: "fallback:" + modelName, TenantID: sub.TenantID, Provider: s.DefaultProvider},
@@ -370,6 +375,12 @@ func (s *Service) Chat(ctx context.Context, sub auth.Subject, req *canon.Request
 			lastErr = fmt.Errorf("provider %s not registered", rc.provider)
 			continue
 		}
+		// 半开探测名额:冷却刚过期的渠道由 Allow 的 SetNX 原子放行单个试探请求(IsOpen 已过滤打开态)。
+		// 多副本下避免所有副本在冷却结束瞬间同时涌入尚未确认恢复的上游,反复震荡。
+		if s.Breaker != nil && !s.Breaker.Allow(ctx, rc.ch.ID) {
+			lastErr = fmt.Errorf("channel %s half-open probe busy", rc.ch.ID)
+			continue
+		}
 		tryReq := *req
 		tryReq.Model = rc.upstream
 		resp, err := pv.Chat(ctx, rc.ch, &tryReq)
@@ -443,6 +454,12 @@ func (s *Service) Embeddings(ctx context.Context, sub auth.Subject, modelName st
 			lastErr = fmt.Errorf("provider %s not registered", rc.provider)
 			continue
 		}
+		// 半开探测名额:冷却刚过期的渠道由 Allow 的 SetNX 原子放行单个试探请求(IsOpen 已过滤打开态)。
+		// 多副本下避免所有副本在冷却结束瞬间同时涌入尚未确认恢复的上游,反复震荡。
+		if s.Breaker != nil && !s.Breaker.Allow(ctx, rc.ch.ID) {
+			lastErr = fmt.Errorf("channel %s half-open probe busy", rc.ch.ID)
+			continue
+		}
 		vecs, usage, err := pv.Embeddings(ctx, rc.ch, input, rc.upstream)
 		if err != nil {
 			if s.Breaker != nil {
@@ -501,6 +518,12 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 			lastErr = fmt.Errorf("provider %s not registered", rc.provider)
 			continue
 		}
+		// 半开探测名额:冷却刚过期的渠道由 Allow 的 SetNX 原子放行单个试探请求(IsOpen 已过滤打开态)。
+		// 多副本下避免所有副本在冷却结束瞬间同时涌入尚未确认恢复的上游,反复震荡。
+		if s.Breaker != nil && !s.Breaker.Allow(ctx, rc.ch.ID) {
+			lastErr = fmt.Errorf("channel %s half-open probe busy", rc.ch.ID)
+			continue
+		}
 		tryReq := *req
 		tryReq.Model = rc.upstream
 		ch, err := pv.ChatStream(ctx, rc.ch, &tryReq)
@@ -555,7 +578,7 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 		defer cancel()
 		s.recordUsage(dbctx, sub, reqID, req.Model, picked, start, pending, meta.PriceCents, meta.CostCents, finalStatus, finalErrMsg, reqJSON, respJSON)
 		// 流式: 中间件在 g.Next() 时还拿不到 token,这里补登 TPM 桶,使流式也纳入限流统计。
-		s.recordTPM(dbctx, sub, pending)
+		s.recordTPM(dbctx, sub, pending, start)
 	}
 
 	go func() { //nolint:gosec // G118: finalize 必须用 context.Background 脱离请求 ctx,否则客户端早断会取消计费落库(已生成 token 须扣款)。
@@ -587,6 +610,12 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 						"request_id", reqID, "channel_id", picked.ch.ID, "err", chunk.StreamError)
 					finalStatus = "partial"
 					finalErrMsg = chunk.StreamError
+					// 把错误信号投递给控制器,让其向客户端发 error 事件,而非读到 out 关闭后
+					// 发截断的空帧+[DONE](OpenAI)或伪造 end_turn(Anthropic)——客户端会误以为成功。
+					select {
+					case out <- chunk:
+					case <-ctx.Done():
+					}
 					return
 				}
 				if chunk.Usage != nil {
@@ -793,16 +822,27 @@ func truncPtr(b []byte, max int) *string {
 	return &s
 }
 
-// recordTPM 把本次用量计入 API Key 的 TPM 分钟桶(流式补登;非流式由中间件直接计数)。
-func (s *Service) recordTPM(ctx context.Context, sub auth.Subject, usage canon.Usage) {
-	if s.RDB == nil || sub.APIKeyID == "" || sub.TPMLimit <= 0 {
+// recordTPM 把本次用量计入 TPM 分钟桶(流式补登;非流式由中间件经 rl_tokens 直接计数)。
+// 身份键与限流中间件保持一致:API Key 优先,否则 UserID(聊天台 JWT)——否则 JWT 流式
+// (sub.APIKeyID=="")早返回,Playground 流式完全不计 TPM,可绕过 Web.Playground.TPMLimit。
+// 桶键用请求开始时间而非结束时间:流式跨分钟时 token 全计到结束分钟会让起始分钟少算、
+// 结束分钟多算,下一请求预检误判。是否限额由中间件预检决定,此处统一补登真实用量。
+func (s *Service) recordTPM(ctx context.Context, sub auth.Subject, usage canon.Usage, start time.Time) {
+	if s.RDB == nil {
+		return
+	}
+	ident := sub.APIKeyID
+	if ident == "" {
+		ident = sub.UserID
+	}
+	if ident == "" {
 		return
 	}
 	tokens := int64(usage.PromptTokens + usage.CompletionTokens)
 	if tokens <= 0 {
 		return
 	}
-	key := "rl:tpm:" + sub.APIKeyID + ":" + time.Now().Format("200601021504")
+	key := "rl:tpm:" + ident + ":" + start.Format("200601021504")
 	if _, err := s.RDB.IncrBy(ctx, key, tokens).Result(); err == nil {
 		_ = s.RDB.Expire(ctx, key, 65*time.Second).Err()
 	}

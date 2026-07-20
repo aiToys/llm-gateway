@@ -21,7 +21,8 @@ type createKeyReq struct {
 	MonthlyRequestLimit int `json:"monthly_request_limit"`
 	DailyTokenLimit     int `json:"daily_token_limit"`
 	MonthlyTokenLimit   int `json:"monthly_token_limit"`
-	IPWhitelist         []string `json:"ip_whitelist"`
+	IPWhitelist         []string    `json:"ip_whitelist"`
+	ExpiresAt           *time.Time `json:"expires_at,omitempty"` // 空=永不过期
 }
 
 func (s *Server) listKeys(g *gin.Context) {
@@ -63,7 +64,7 @@ func (s *Server) createKey(g *gin.Context) {
 		Models: req.Models, RPMLimit: req.RPMLimit, TPMLimit: req.TPMLimit,
 		DailyRequestLimit: req.DailyRequestLimit, MonthlyRequestLimit: req.MonthlyRequestLimit,
 		DailyTokenLimit: req.DailyTokenLimit, MonthlyTokenLimit: req.MonthlyTokenLimit,
-		IPWhitelist: req.IPWhitelist, Status: "active", CreatedAt: time.Now(),
+		IPWhitelist: req.IPWhitelist, ExpiresAt: req.ExpiresAt, Status: "active", CreatedAt: time.Now(),
 	}
 	if err := s.Store.CreateAPIKey(g.Request.Context(), k); err != nil {
 		s.respondInternal(g, err)
@@ -87,5 +88,6 @@ func (s *Server) revokeKey(g *gin.Context) {
 	if s.RDB != nil && hash != "" {
 		_ = s.RDB.Del(g.Request.Context(), "apikey:"+hash).Err()
 	}
+	s.audit(g, "user.apikey_revoke", id)
 	s.ok(g)
 }

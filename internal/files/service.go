@@ -18,8 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrNotFound = errors.New("file not found")
-
 // MaxUploadBytes 单文件上传上限(20MB)。在 io.Copy 期间以 LimitReader 强制,
 // 防止客户端谎报 Content-Length 或流式塞满磁盘。
 const MaxUploadBytes = 20 << 20
@@ -110,22 +108,6 @@ func isAllowedMIME(ct string) bool {
 	}
 	_, ok := allowedUploadMIME[ct]
 	return ok
-}
-
-// Get 取文件元信息。
-func (s *Service) Get(ctx context.Context, id string) (*model.File, error) {
-	f, err := s.Store.GetFile(ctx, id)
-	if err != nil {
-		return nil, ErrNotFound
-	}
-	return f, nil
-}
-
-// FilePath 返回本地磁盘路径(供下载)。
-func (s *Service) FilePath(objName string) string {
-	// 防目录穿越: 清洗路径。
-	clean := filepath.Clean("/" + objName)
-	return filepath.Join(s.Root, filepath.Base(filepath.Dir(clean)), filepath.Base(clean))
 }
 
 // ServeHTTP 提供文件下载(静态)。

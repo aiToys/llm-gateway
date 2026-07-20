@@ -90,7 +90,7 @@ func TestChargeAtomicIdempotent(t *testing.T) {
 		}
 	}
 
-	bal1, err := s.ChargeAtomic(ctx, charge())
+	_, bal1, err := s.ChargeAtomic(ctx, charge())
 	if err != nil {
 		t.Fatalf("first charge: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestChargeAtomicIdempotent(t *testing.T) {
 		t.Fatalf("after first charge want 9700, got %d", bal1)
 	}
 	// 同 request_id 再扣一次: 必须幂等,余额不再减少。
-	bal2, err := s.ChargeAtomic(ctx, charge())
+	_, bal2, err := s.ChargeAtomic(ctx, charge())
 	if err != nil {
 		t.Fatalf("idempotent charge: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestChargeAtomicConcurrentSameRequestID(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := s.ChargeAtomic(ctx, &model.BillingLedger{
+			_, _, err := s.ChargeAtomic(ctx, &model.BillingLedger{
 				ID: storeID(), TenantID: tenant, UserID: uid, RequestID: reqID, Model: "m",
 				InputTokens: 10, OutputTokens: 5, CostCents: 1, PriceCents: price, MarginCents: price - 1,
 				Type: model.LedgerUsage, CreatedAt: time.Now(),
@@ -170,7 +170,7 @@ func TestChargeAtomicOverdraftProtection(t *testing.T) {
 	tenant := "t-" + storeID()
 	uid := seedUser(t, s, tenant, 100) // 1 元
 
-	bal, err := s.ChargeAtomic(ctx, &model.BillingLedger{
+	_, bal, err := s.ChargeAtomic(ctx, &model.BillingLedger{
 		ID: storeID(), TenantID: tenant, UserID: uid, RequestID: "req-" + storeID(), Model: "m",
 		InputTokens: 1, OutputTokens: 1, CostCents: 1, PriceCents: 5000, MarginCents: 4999,
 		Type: model.LedgerUsage, CreatedAt: time.Now(),
@@ -187,6 +187,43 @@ func TestChargeAtomicOverdraftProtection(t *testing.T) {
 	}
 	if u.BalanceCents != 0 {
 		t.Fatalf("persisted balance want 0, got %d", u.BalanceCents)
+	}
+}
+
+// TestRedeemCodeAtomic 验证卡密兑换: 兑换加余额+写账目;重复兑换/无效码返 ErrInvalidRedeemCode,余额不变。
+func TestRedeemCodeAtomic(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenant := "t-" + storeID()
+	uid := seedUser(t, s, tenant, 0) // 0 元起步
+	code := "RD-" + storeID()
+	if err := s.CreateRedeemCode(ctx, &model.RedeemCode{
+		ID: storeID(), Code: code, AmountCents: 5000, Status: "active", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create redeem code: %v", err)
+	}
+	// 首次兑换: +50 元,余额 5000。
+	amount, nb, err := s.RedeemCodeAtomic(ctx, code, uid, tenant)
+	if err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if amount != 5000 || nb != 5000 {
+		t.Fatalf("want amount=5000 balance=5000, got amount=%d balance=%d", amount, nb)
+	}
+	// 重复兑换同一码: 必须失败,余额不变(原子幂等)。
+	if _, _, err := s.RedeemCodeAtomic(ctx, code, uid, tenant); !errors.Is(err, ErrInvalidRedeemCode) {
+		t.Fatalf("re-redeem want ErrInvalidRedeemCode, got %v", err)
+	}
+	u, err := s.GetUser(ctx, uid)
+	if err != nil {
+		t.Fatalf("reload user: %v", err)
+	}
+	if u.BalanceCents != 5000 {
+		t.Fatalf("balance changed after invalid re-redeem: want 5000, got %d", u.BalanceCents)
+	}
+	// 无效码: ErrInvalidRedeemCode,余额不变。
+	if _, _, err := s.RedeemCodeAtomic(ctx, "NOPE-"+storeID(), uid, tenant); !errors.Is(err, ErrInvalidRedeemCode) {
+		t.Fatalf("invalid code want ErrInvalidRedeemCode, got %v", err)
 	}
 }
 

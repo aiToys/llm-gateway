@@ -33,13 +33,6 @@ export function provTagType(p) {
   return PROVIDER_TAG_TYPES[p] || 'default'
 }
 
-// 公开筛选用供应商选项(mock 仅开发环境显示)。
-export const PROVIDER_OPTIONS = [
-  { label: '阿里云百炼', value: 'bailian' },
-  { label: '火山方舟', value: 'volcark' },
-  { label: '百度千帆', value: 'qianfan' },
-  { label: 'Mock(开发)', value: 'mock' },
-]
 // 能力多标签(参考智谱/OpenAI:一个模型可同时具备多种能力)。
 // cap → {label, icon}
 export const CAPABILITIES = {
@@ -55,10 +48,6 @@ export const CAPABILITIES = {
 export const CAPABILITY_OPTIONS = Object.entries(CAPABILITIES).map(([v, m]) => ({ label: `${m.icon} ${m.label}`, value: v }))
 export function capIcon(c) { return CAPABILITIES[c]?.icon || '' }
 export function capLabel(c) { return CAPABILITIES[c]?.label || c }
-// 模型是否具备某能力(用于筛选)。
-export function hasCapability(caps, key) {
-  return (caps || []).includes(key)
-}
 export const STATUS_META = {
   active: { label: '启用', type: 'success' },
   enabled: { label: '启用', type: 'success' },
@@ -71,11 +60,6 @@ export function statusLabel(s) {
 }
 export function statusType(s) {
   return STATUS_META[s]?.type || 'default'
-}
-
-export function hasModality(m, key) {
-  const mod = m.modality || ''
-  return mod.includes(key) || mod === 'multimodal'
 }
 
 // ── 模型分类:左侧筛选面板的"模型类型"分组 ──

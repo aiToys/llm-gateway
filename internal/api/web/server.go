@@ -66,6 +66,7 @@ func (s *Server) Register(r *gin.Engine) {
 		jwt.GET("/usage/ledger", s.usageLedger)
 		jwt.GET("/usage/aggregate", s.usageAggregate)
 		jwt.POST("/recharge", s.recharge)
+		jwt.POST("/redeem", s.redeem)
 		jwt.POST("/recharge/order", s.createRechargeOrder)
 		jwt.GET("/recharge/order/:no", s.getOrderStatus)
 		// 团队协作: 登录后访问,handler 内按本租户收窄;管理操作 requireTeamAdmin。
@@ -130,5 +131,7 @@ func (s *Server) Register(r *gin.Engine) {
 		platform.GET("/ledger/export", s.adminLedgerExport)
 		platform.GET("/usage/aggregate", s.adminUsageAggregate)
 		platform.GET("/audit", s.adminAudit)
+		platform.POST("/redeem-codes", s.adminCreateRedeemCodes)
+		platform.GET("/redeem-codes", s.adminListRedeemCodes)
 	}
 }

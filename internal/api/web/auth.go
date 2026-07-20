@@ -55,6 +55,7 @@ func (s *Server) register(g *gin.Context) {
 		s.respondInternal(g, err)
 		return
 	}
+	s.audit(g, "user.register", req.Email)
 	s.issueAndReturn(g, userID, tenantID, string(model.RoleAdmin), req.Email)
 }
 
@@ -84,17 +85,21 @@ func (s *Server) login(g *gin.Context) {
 		}
 	}
 	if u == nil {
+		s.audit(g, "user.login_failed", req.Email+":not_found")
 		g.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 	if !crypto.VerifyPassword(u.PasswordHash, req.Password) {
+		s.audit(g, "user.login_failed", req.Email+":bad_password")
 		g.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 	if u.Status != "active" {
+		s.audit(g, "user.login_failed", req.Email+":disabled")
 		g.JSON(http.StatusForbidden, gin.H{"error": "user disabled"})
 		return
 	}
+	s.audit(g, "user.login", u.Email)
 	s.issueAndReturn(g, u.ID, u.TenantID, string(u.Role), u.Email)
 }
 

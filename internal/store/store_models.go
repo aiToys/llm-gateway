@@ -156,6 +156,10 @@ func (s *Store) EffectivePrice(ctx context.Context, tenantID, modelName string) 
 		}
 		return &model.ModelDef{ModelName: modelName, InputPriceCentsPerM: in, OutputPriceCentsPerM: out, CacheReadPriceCentsPerM: cr, CacheWritePriceCentsPerM: cw, Enabled: true, RoutingStrategy: rs, PinnedChannelID: pin}, nil
 	}
+	// 区分"租户无覆盖(pgx.ErrNoRows → 回退全局)"与"DB 错误(应上抛;否则连接抖动时用户按错误价计费)"。
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	// 回退到全局
 	m, gerr := s.GetModel(ctx, modelName)
 	if gerr != nil {

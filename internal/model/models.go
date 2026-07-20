@@ -335,3 +335,17 @@ type RequestLog struct {
 	Error        *string    `json:"error,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
+
+// RedeemCode 充值兑换码(卡密)。平台发行,用户凭码兑换加余额。
+// status: active(未用) | used(已用) | disabled(停用)。expires_at 空=永久。
+type RedeemCode struct {
+	ID           string     `json:"id"`
+	Code         string     `json:"code"`
+	AmountCents  int64      `json:"amount_cents"`
+	Status       string     `json:"status"`
+	Note         string     `json:"note"`
+	UsedByUserID *string    `json:"used_by_user_id,omitempty"`
+	UsedAt       *time.Time `json:"used_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+}

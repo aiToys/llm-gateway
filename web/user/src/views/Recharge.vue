@@ -32,6 +32,13 @@
     <n-button type="primary" size="large" :loading="loading" :disabled="loading || !amountCents"
       style="margin-top:18px" @click="pay">确认充值 ¥{{ amountDisplay }}</n-button>
 
+    <!-- 兑换码充值: 卡密直充,不经第三方。 -->
+    <div class="redeem">
+      <div class="rlabel">兑换码</div>
+      <n-input v-model:value="redeemCode" placeholder="输入卡密兑换码" :disabled="redeeming" @keyup.enter="redeem" />
+      <n-button type="primary" :loading="redeeming" :disabled="redeeming || !redeemCode.trim()" @click="redeem">兑换</n-button>
+    </div>
+
     <n-alert :type="isMock ? 'info' : 'warning'" style="margin-top:16px">
       <template v-if="isMock">当前为模拟支付(mock),下单后用手机扫页面二维码或调用回调接口即可模拟到账,无需真实付款。</template>
       <template v-else>支付由第三方(微信/支付宝)收单,到账后余额自动更新。订单 {{ EXPIRES_MIN }} 分钟内未支付自动关闭。</template>
@@ -64,7 +71,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, h } from 'vue'
-import { NButton, NAlert, NDataTable, NTag, NModal, NInputNumber, NSpin, useMessage } from 'naive-ui'
+import { NButton, NAlert, NDataTable, NTag, NModal, NInputNumber, NSpin, NInput, useMessage } from 'naive-ui'
 import QRCode from 'qrcode'
 import { api, user, apiErr } from '../api.js'
 import { formatCents, formatTime } from '../utils.js'
@@ -212,6 +219,24 @@ async function devMockRecharge() {
   finally { loading.value = false }
 }
 
+// --- 兑换码充值(卡密直充) ---
+const redeemCode = ref('')
+const redeeming = ref(false)
+async function redeem() {
+  const code = redeemCode.value.trim()
+  if (!code) return
+  redeeming.value = true
+  try {
+    const { data } = await api.redeem(code)
+    if (data.balance_cents != null) { balance.value = data.balance_cents; balanceLoaded.value = true }
+    const amt = data.amount_cents != null ? (data.amount_cents / 100).toFixed(2) : ''
+    message.success(amt ? `兑换成功 +¥${amt}` : '兑换成功')
+    redeemCode.value = ''
+    await loadLedger()
+  } catch (e) { message.error(apiErr(e, '兑换失败')) }
+  finally { redeeming.value = false }
+}
+
 // 支付宝 return_url 带回 order 参数时自动轮询该订单。
 function pickOrderFromQuery() {
   const no = new URLSearchParams(location.search).get('order')
@@ -245,5 +270,7 @@ h3 { margin-top:0 }
 .qr-tip { font-size:13px; color:#6b7280; margin:6px 0 }
 .qr-status { display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; margin-top:8px; min-height:22px }
 .qr-actions { margin-top:10px }
+.redeem { display:flex; align-items:center; gap:10px; margin-top:18px; max-width:480px }
+.redeem .rlabel { font-size:13px; color:#6b7280; flex-shrink:0 }
 @media (max-width:480px) { .amounts { grid-template-columns:repeat(2,1fr) } }
 </style>

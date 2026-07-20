@@ -5,6 +5,33 @@
 
 ## [Unreleased]
 
+继 v0.2.0 之后的 5 轮深度优化:逻辑缺陷修复 + 架构清理 + 运营面功能补齐。
+
+### 修复
+- **流式中途错误被静默吞掉**: relay 收到上游 StreamError 后直接 return 未投递给控制器,OpenAI 出口发截断的空帧+[DONE]、Anthropic 出口伪造 `end_turn` 成功事件——客户端基于不完整/虚假响应做决策。改为投递错误信号 chunk,OpenAI 发 `error` 事件、Anthropic 发 `event: error`。
+- **Anthropic 入口完全绕过 TPM 限流**: `/v1/messages` 非流式未设置 `rl_tokens`,TPM 桶永不被计入;补齐(与 OpenAI 入口一致)。
+- **Playground 流式绕过 TPM**: `recordTPM` 在 `APIKeyID==""`(JWT 主体)时早返回,聊天台流式不计 TPM。身份键改为 `APIKeyID || UserID`,与限流中间件一致。
+- **流式 TPM 桶键用结束时间**: 跨分钟流式把 token 全计到结束分钟桶,起止分钟统计失真;改用请求开始时间。
+- **熔断器半开探测死代码**: `Breaker.Allow`(Redis SetNX 原子抢占探测名额)实现完整但从未被调用,多副本冷却结束瞬间所有副本同时涌入上游反复震荡。在 Chat/Embeddings/ChatStream 调用上游前补 `Allow` 闸门。
+- **API Key 缓存命中不复查过期**: 缓存 TTL(2min)内过期的 Key 仍可鉴权。Subject 携带 `ExpiresAt`,缓存命中路径补复查。
+- **计费收入指标幂等冲突时重复计数**: `ChargeAtomic` 命中唯一冲突(已计费)时仍触发 `metrics.ObserveCharge`,重试致 revenue 虚高。改为返回 `newlyCharged` 标记,仅真记账才上报。
+- **`OrderStatus` 二次查询失败返回 (nil,nil)**: 上层 `o.Status` nil deref 被 Recovery 兜底 500。失败时保留 settle 后的订单对象。
+- **`EffectivePrice` 静默吞租户覆盖查询的 DB 错误**: 连接抖动被当作"无覆盖"回退全局价,用户可能按错误价计费。区分 `pgx.ErrNoRows`(回退)与 DB 错误(上抛)。
+- **fallback 渠道无 API Key**: `DefaultProvider` 非 mock 时 fallback 到无 key 的真实上游会 401 且反复熔断不存在的渠道。改为仅 mock 才 fallback,否则返 `ErrNoChannel`。
+
+### 变更
+- **架构清理**: 删除死代码 `files.Service.Get/FilePath/ErrNotFound` + `store.GetFile` + `middleware.FromContext` 兼容垫片。
+- **DRY**: 抽 `common.WriteRelayError` 消除 OpenAI/Anthropic 双 controller 的错误回写重复(~70 行);抽 `store.scanChannelModel` 复用两处 channel_models scan;删前端 `constants.js` 未用 export(`PROVIDER_OPTIONS`/`hasCapability`/`hasModality`)。
+- **admin.go 按域拆分**: 759 行单文件拆为 `admin.go`(共享 helpers/模型/账本)+ `admin_tenants.go` + `admin_users.go` + `channel_admin.go`(渠道 CRUD 并入),零逻辑改动。
+
+### 新增
+- **充值卡密(兑换码)**: 平台 admin 批量生成卡密(`POST/GET /api/admin/redeem-codes`),用户凭码兑换(`POST /api/redeem`)。`RedeemCodeAtomic` 单事务原子完成"标记 used + 加余额 + 写 recharge 账目",保证账实一致。
+- **API Key 过期时间**: `createKey` 收 `expires_at`(中间件复查已生效)。
+- **登录/鉴权审计**: login 成功/失败、register、API Key 吊销入 `audit_logs`。
+- **前端:兑换码充值 UI**: Recharge 页加"兑换码"输入+兑换(成功后余额局部刷新,无需重拉 /api/me)。
+- **前端:暗色模式**: 主题切换按钮(公共页+控制台顶部),localStorage 持久化,默认跟随系统 `prefers-color-scheme`。
+- **前端:API Key 过期时间 UI**: Keys 创建表单加 `NDatePicker`(留空=永不过期)。
+
 ## [0.2.0] - 2026-07-20
 
 首个正式可用版本(在 v0.1.0 预览版基础上完成深度审计与架构优化)。本项目尚无线上用户,v0.2.0 作为干净的起点。

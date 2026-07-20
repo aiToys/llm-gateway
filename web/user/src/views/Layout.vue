@@ -14,9 +14,12 @@
     <n-layout>
       <n-layout-header bordered class="header">
         <span class="title">{{ currentTitle }}</span>
-        <n-dropdown :options="userOptions" @select="onUser">
-          <n-button quaternary>{{ userInfo?.email || '未登录' }}</n-button>
-        </n-dropdown>
+        <div class="header-right">
+          <n-button quaternary :title="isDark ? '切换到浅色' : '切换到深色'" @click="toggleTheme">{{ isDark ? '☀️' : '🌙' }}</n-button>
+          <n-dropdown :options="userOptions" @select="onUser">
+            <n-button quaternary>{{ userInfo?.email || '未登录' }}</n-button>
+          </n-dropdown>
+        </div>
       </n-layout-header>
       <n-layout-content content-style="padding:0" style="height:calc(100vh - 56px)">
         <router-view />
@@ -30,11 +33,14 @@ import { ref, computed, onMounted, h } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent, NMenu, NButton, NIcon, NDropdown } from 'naive-ui'
 import { api, user } from '../api.js'
-import { logout } from '../store.js'
+import { logout, theme } from '../store.js'
 
 const router = useRouter()
 const route = useRoute()
 const userInfo = ref(user.get())
+// 主题: 直接绑定 store.ref(响应式),toggleTheme 改写 localStorage 后 App.vue 的 computed 自动重新应用。
+const isDark = computed(() => theme.ref.value === 'dark')
+function toggleTheme() { theme.toggle() }
 
 const titles = { chat: '模型对话', plaza: '模型广场', 'my-models': '模型管理', keys: 'API 密钥', usage: '用量统计', recharge: '账户充值' }
 const active = computed(() => route.name)
@@ -81,4 +87,5 @@ onMounted(async () => {
 .balance { margin-top:auto; padding:14px 20px; font-size:13px; color:#666; display:flex; align-items:center; gap:6px; flex-wrap:wrap }
 .header { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:#fff }
 .header .title { font-weight:600; color:#1f2330 }
+.header-right { display:flex; align-items:center; gap:8px }
 </style>

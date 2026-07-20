@@ -29,10 +29,10 @@ func ledgerInsertArgs(l *model.BillingLedger) []any {
 //
 //	CHECK 约束,余额下界恒为 0);账目仍按完整应收价 price_cents 记录以保收入统计。
 //	请求前的预检 preflight 负责尽早拦截明显无力支付的调用。
-func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64, error) {
+func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (newlyCharged bool, balance int64, err error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return false, 0, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -42,7 +42,7 @@ func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64
 	// 导致余额扣两次但账本只落一条(账实断裂)。X-Request-Id 由客户端控制,可被外部触发。
 	var prev int64
 	if err = tx.QueryRow(ctx, `SELECT balance_cents FROM users WHERE id=$1 FOR UPDATE`, l.UserID).Scan(&prev); err != nil {
-		return 0, err
+		return false, 0, err
 	}
 
 	// 实扣 = min(余额, 应收);不足时扣到 0,配合 CHECK 约束保证余额非负。账目仍记完整应收价。
@@ -55,7 +55,8 @@ func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64
 
 	// 幂等闸(原子): usage 类型先尝试 INSERT 账目(ON CONFLICT DO NOTHING + RETURNING)。
 	// 仅当本次真正 INSERT 成功(RETURNING 有行)才扣减余额——彻底消除"检查→扣款→记账冲突被吞"的双扣窗口,
-	// 唯一索引 uniq_ledger_usage_request 成为并发幂等的唯一闸门。
+	// 唯一索引 uniq_ledger_usage_request 成为并发幂等的唯一闸门。newlyCharged 标记本次是否真记账,
+	// 供调用方决定是否上报收入指标(幂等命中不重复计数,否则重试致 revenue 虚高)。
 	if l.Type == model.LedgerUsage && l.RequestID != "" {
 		var insertedID string
 		err = tx.QueryRow(ctx,
@@ -65,35 +66,35 @@ func (s *Store) ChargeAtomic(ctx context.Context, l *model.BillingLedger) (int64
 			ledgerInsertArgs(l)...).Scan(&insertedID)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
-				return 0, err
+				return false, 0, err
 			}
 			// RETURNING 无行 = 唯一冲突 = 该 request_id 已计费:不扣减,返回当前余额。
 			if err = tx.Commit(ctx); err != nil {
-				return 0, err
+				return false, 0, err
 			}
-			return prev, nil
+			return false, prev, nil
 		}
 		// 本次真正记账 → 扣减余额。
 		if _, err = tx.Exec(ctx, `UPDATE users SET balance_cents=$2 WHERE id=$1`, l.UserID, nb); err != nil {
-			return 0, err
+			return false, 0, err
 		}
 		if err = tx.Commit(ctx); err != nil {
-			return 0, err
+			return false, 0, err
 		}
-		return nb, nil
+		return true, nb, nil
 	}
 
 	// 非 usage 类型(充值/退款/转账等不经此路径,保留兜底):扣减 + 记账,无幂等闸。
 	if _, err = tx.Exec(ctx, `UPDATE users SET balance_cents=$2 WHERE id=$1`, l.UserID, nb); err != nil {
-		return 0, err
+		return false, 0, err
 	}
 	if _, err = tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(l)...); err != nil {
-		return 0, err
+		return false, 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return 0, err
+		return false, 0, err
 	}
-	return nb, nil
+	return true, nb, nil
 }
 
 // AdjustAtomic 在单事务内"改余额 + (可选)写充值记录 + 写账目",保证账实一致。

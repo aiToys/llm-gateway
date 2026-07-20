@@ -1,8 +1,13 @@
 package web
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/aitoys/llm-gateway/internal/metrics"
+	"github.com/aitoys/llm-gateway/internal/store"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,4 +34,33 @@ func (s *Server) recharge(g *gin.Context) {
 		return
 	}
 	g.JSON(http.StatusOK, gin.H{"balance_cents": nb})
+}
+
+// redeem 凭兑换码(卡密)充值: 原子消耗卡密(active→used)并加余额,单事务保证账实一致。
+// 与模拟 recharge 不同,生产环境也开放——卡密是真实付款凭证,等同已支付。
+func (s *Server) redeem(g *gin.Context) {
+	sub := mustSub(g)
+	var req struct {
+		Code string `json:"code" binding:"required"`
+	}
+	if !s.bindJSON(g, &req) {
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "兑换码不能为空"})
+		return
+	}
+	amount, nb, err := s.Store.RedeemCodeAtomic(g.Request.Context(), code, sub.UserID, sub.TenantID)
+	if err != nil {
+		if errors.Is(err, store.ErrInvalidRedeemCode) {
+			g.JSON(http.StatusNotFound, gin.H{"error": "兑换码无效或已使用"})
+			return
+		}
+		s.respondInternal(g, err)
+		return
+	}
+	metrics.ObserveCharge("recharge", amount)
+	s.audit(g, "user.redeem", fmt.Sprintf("%d cents", amount))
+	g.JSON(http.StatusOK, gin.H{"balance_cents": nb, "amount_cents": amount})
 }

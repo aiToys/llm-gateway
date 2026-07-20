@@ -51,6 +51,11 @@ func APIKeyAuth(s *store.Store, rdb *redis.Client) gin.HandlerFunc {
 		var sub auth.Subject
 		if cached != nil {
 			sub = *cached
+			// 复查过期:缓存 TTL(2min)内过期的 Key 不应继续放行(与 DB 路径一致)。
+			if sub.ExpiresAt != nil && sub.ExpiresAt.Before(time.Now()) {
+				abortAuth(g, "expired_api_key")
+				return
+			}
 		} else {
 			k, err := s.GetAPIKeyByHash(g.Request.Context(), hash)
 			if err != nil || k == nil {
@@ -85,7 +90,7 @@ func APIKeyAuth(s *store.Store, rdb *redis.Client) gin.HandlerFunc {
 				APIKeyID: k.ID, APIKeyName: k.Name, TenantStatus: tenantStatus, UserStatus: u.Status,
 				RPMLimit: k.RPMLimit, TPMLimit: k.TPMLimit, IPWhitelist: k.IPWhitelist,
 				DailyRequestLimit: k.DailyRequestLimit, MonthlyRequestLimit: k.MonthlyRequestLimit,
-				DailyTokenLimit: k.DailyTokenLimit, MonthlyTokenLimit: k.MonthlyTokenLimit}
+				DailyTokenLimit: k.DailyTokenLimit, MonthlyTokenLimit: k.MonthlyTokenLimit, ExpiresAt: k.ExpiresAt}
 			if rdb != nil {
 				if b, err := json.Marshal(sub); err == nil {
 					_ = rdb.Set(g.Request.Context(), cacheKey, b, 2*time.Minute).Err()

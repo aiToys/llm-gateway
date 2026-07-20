@@ -83,10 +83,14 @@ func (s *Service) Charge(ctx context.Context, tenantID, userID, requestID, model
 	// 共尝试 len(backoffs)+1 次(初次 + 每次退避后再试)。注意: select 内的 break 只能跳出
 	// select 而非外层 for,故 ctx 取消的判定放在 select 之外,确保能真正中止重试转入入队。
 	backoffs := []time.Duration{50 * time.Millisecond, 200 * time.Millisecond, 500 * time.Millisecond}
+	var newlyCharged bool
 	for attempt := 0; attempt <= len(backoffs); attempt++ {
-		newBalance, err = s.Store.ChargeAtomic(ctx, build())
+		newlyCharged, newBalance, err = s.Store.ChargeAtomic(ctx, build())
 		if err == nil {
-			metrics.ObserveCharge("usage", priceCents)
+			// 仅本次真正记账才上报收入指标;幂等命中(已计费)不重复计数,避免重试致 revenue 虚高。
+			if newlyCharged {
+				metrics.ObserveCharge("usage", priceCents)
+			}
 			return newBalance, priceCents, costCents, nil
 		}
 		if attempt >= len(backoffs) {
@@ -152,7 +156,8 @@ func (s *Service) settlePending(ctx context.Context, p *model.PendingCharge) {
 		CostCents: p.CostCents, PriceCents: p.PriceCents, MarginCents: p.PriceCents - p.CostCents,
 		Type: model.LedgerUsage, CreatedAt: time.Now(),
 	}
-	if _, err := s.Store.ChargeAtomic(ctx, l); err != nil {
+	newlyCharged, _, err := s.Store.ChargeAtomic(ctx, l)
+	if err != nil {
 		attempts := p.Attempts + 1
 		if attempts >= maxPendingAttempts {
 			_ = s.Store.MarkPendingAbandoned(ctx, p.ID, err.Error())
@@ -166,7 +171,9 @@ func (s *Service) settlePending(ctx context.Context, p *model.PendingCharge) {
 		return
 	}
 	_ = s.Store.MarkPendingDone(ctx, p.ID)
-	metrics.ObserveCharge("usage", p.PriceCents)
+	if newlyCharged {
+		metrics.ObserveCharge("usage", p.PriceCents)
+	}
 }
 
 // pendingBackoff 第 N 次失败后的下次重试退避:N²×10s,上限 10 分钟。

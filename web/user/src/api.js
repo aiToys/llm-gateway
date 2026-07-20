@@ -52,6 +52,7 @@ export const api = {
   usageAggregate: (params) => http.get('/api/usage/aggregate', { params }),
   ledger: (limit = 50) => http.get(`/api/usage/ledger?limit=${limit}`),
   recharge: (cents) => http.post('/api/recharge', { amount_cents: cents }),
+  redeem: (code) => http.post('/api/redeem', { code }),
   createRechargeOrder: (amountCents, provider) => http.post('/api/recharge/order', { amount_cents: amountCents, provider }),
   orderStatus: (no) => http.get(`/api/recharge/order/${no}`),
   // 团队

@@ -3,7 +3,6 @@ package openai
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	"github.com/aitoys/llm-gateway/internal/api/common"
 	"github.com/aitoys/llm-gateway/internal/auth"
 	"github.com/aitoys/llm-gateway/internal/canon"
-	"github.com/aitoys/llm-gateway/internal/logging"
 	"github.com/aitoys/llm-gateway/internal/relay"
 	"github.com/gin-gonic/gin"
 )
@@ -201,37 +199,7 @@ func (c *Controller) Models(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
 }
 
-// writeRelayErr 把 relay 错误映射为对客户端友好的 HTTP 响应。
-// 已知的业务哨兵错误透出明确类型;其余(含上游响应体)一律脱敏为通用 upstream_error,
-// 避免把上游网关内部信息 / trace id / 鉴权调试信息泄露给客户端。
+// writeRelayErr 把 relay 错误映射为对客户端友好的 HTTP 响应(委托 common 统一实现)。
 func (c *Controller) writeRelayErr(g *gin.Context, err error) {
-	// 上游 4xx/5xx 透传: 开关开启时原样回写上游 status code + body + Retry-After,
-	// 让智能客户端据真实错误(429/529 等)自行退避重试;关闭则走下方 default 脱敏为 502。
-	var ue *canon.UpstreamError
-	if errors.As(err, &ue) && c.Relay != nil && c.Relay.PassthroughUpstreamErrors {
-		if ue.RetryAfter != "" {
-			g.Header("Retry-After", ue.RetryAfter)
-		}
-		ct := ue.ContentType
-		if ct == "" {
-			ct = "application/json"
-		}
-		g.Data(ue.StatusCode, ct, ue.Body)
-		return
-	}
-	switch {
-	case errors.Is(err, relay.ErrModelNotFound):
-		common.Error(g, http.StatusNotFound, "model_not_found", "model not found or disabled")
-	case errors.Is(err, relay.ErrNoChannel):
-		common.Error(g, http.StatusServiceUnavailable, "no_channel", "no available channel for model")
-	case errors.Is(err, relay.ErrInsufficientBal):
-		common.Error(g, http.StatusPaymentRequired, "insufficient_balance", "insufficient balance")
-	case errors.Is(err, relay.ErrQuotaExceeded):
-		common.Error(g, http.StatusTooManyRequests, "quota_exceeded", "usage quota exceeded")
-	default:
-		// 上游错误脱敏: 完整 err 仅记服务端日志,客户端只收到通用提示。
-		logging.L().Warn("relay upstream error",
-			"req_id", g.GetString("request_id"), "model", "", "err", err.Error())
-		common.Error(g, http.StatusBadGateway, "upstream_error", "upstream request failed")
-	}
+	common.WriteRelayError(g, err, c.Relay != nil && c.Relay.PassthroughUpstreamErrors, common.StyleOpenAI)
 }

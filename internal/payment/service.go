@@ -131,7 +131,10 @@ func (s *Service) OrderStatus(ctx context.Context, userID, outTradeNo string) (*
 				// 若 settle 共用请求 ctx 会中断进行中的 PG 事务 → 资金不一致(与 HandleNotify 同源风险)。
 				sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				_ = s.settle(sctx, o, txnID) // 幂等: 内部 MarkPaid 保证只入账一次
-				o, _ = s.Store.GetPaymentOrderByTradeNo(sctx, outTradeNo) // 刷新状态返回
+				// 刷新状态返回;查询失败时保留 settle 后的 o(避免返回 nil 导致上层 nil deref)。
+				if refreshed, qerr := s.Store.GetPaymentOrderByTradeNo(sctx, outTradeNo); qerr == nil && refreshed != nil {
+					o = refreshed
+				}
 				cancel()
 			}
 		}

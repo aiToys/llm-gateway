@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"context"
-
 	"github.com/aitoys/llm-gateway/internal/requestid"
 	"github.com/gin-gonic/gin"
 )
@@ -25,11 +23,4 @@ func RequestID() gin.HandlerFunc {
 		g.Request = g.Request.WithContext(requestid.With(g.Request.Context(), id))
 		g.Next()
 	}
-}
-
-// FromContext 从 ctx 取 request_id(中间件注入);不存在返回空串。
-// 保留为兼容入口,内部委托给 requestid 包(核心业务包应直接用 requestid.FromContext,
-// 避免依赖传输层 middleware)。
-func FromContext(ctx context.Context) string {
-	return requestid.FromContext(ctx)
 }

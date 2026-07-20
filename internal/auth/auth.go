@@ -35,6 +35,8 @@ type Subject struct {
 	MonthlyRequestLimit int
 	DailyTokenLimit     int
 	MonthlyTokenLimit   int
+	// API Key 过期时间(缓存命中时复查;nil=永不过期)。使 expires_at 在缓存 TTL 内也能及时失效。
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // IsPlatformAdmin 是否平台超级管理员(跨租户)。

@@ -231,6 +231,16 @@ func (s *Store) UpdateChannelRouting(ctx context.Context, id string, priority, w
 	return nil
 }
 
+// scanChannelModel 扫描一行 channel_models 记录(列顺序固定)。
+// 供 ListChannelModels / channelModelsByChannels 复用,避免两处 Scan 字段顺序重复维护。
+func scanChannelModel(rows pgx.Rows) (model.ChannelModel, error) {
+	var cm model.ChannelModel
+	err := rows.Scan(&cm.ID, &cm.ChannelID, &cm.ModelName, &cm.UpstreamModel,
+		&cm.InputCostCentsPerM, &cm.OutputCostCentsPerM, &cm.CacheReadCostCentsPerM, &cm.CacheWriteCostCentsPerM,
+		&cm.Weight, &cm.Status, &cm.CreatedAt)
+	return cm, err
+}
+
 // ListChannelModels 取某渠道的全部模型配置(按模型名排序)。
 func (s *Store) ListChannelModels(ctx context.Context, channelID string) ([]model.ChannelModel, error) {
 	rows, err := s.Pool.Query(ctx,
@@ -242,10 +252,8 @@ func (s *Store) ListChannelModels(ctx context.Context, channelID string) ([]mode
 	defer rows.Close()
 	var out []model.ChannelModel
 	for rows.Next() {
-		var cm model.ChannelModel
-		if err := rows.Scan(&cm.ID, &cm.ChannelID, &cm.ModelName, &cm.UpstreamModel,
-			&cm.InputCostCentsPerM, &cm.OutputCostCentsPerM, &cm.CacheReadCostCentsPerM, &cm.CacheWriteCostCentsPerM,
-			&cm.Weight, &cm.Status, &cm.CreatedAt); err != nil {
+		cm, err := scanChannelModel(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, cm)
@@ -267,10 +275,8 @@ func (s *Store) channelModelsByChannels(ctx context.Context, channelIDs []string
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var cm model.ChannelModel
-		if err := rows.Scan(&cm.ID, &cm.ChannelID, &cm.ModelName, &cm.UpstreamModel,
-			&cm.InputCostCentsPerM, &cm.OutputCostCentsPerM, &cm.CacheReadCostCentsPerM, &cm.CacheWriteCostCentsPerM,
-			&cm.Weight, &cm.Status, &cm.CreatedAt); err != nil {
+		cm, err := scanChannelModel(rows)
+		if err != nil {
 			return nil, err
 		}
 		out[cm.ChannelID] = append(out[cm.ChannelID], cm)

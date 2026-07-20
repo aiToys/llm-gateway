@@ -402,3 +402,18 @@ ALTER TABLE ONLY public.usage_records
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
+-- redeem_codes: 充值兑换码(卡密)。无外键依赖(used_by_user_id 仅记录,不加 FK 以免影响用户删除)。
+-- 原为增量迁移 0002,因项目尚无线上用户,合并入初始 schema 保持单一基线(v0.2.0 决策)。
+CREATE TABLE public.redeem_codes (
+    id text NOT NULL,
+    code text NOT NULL,
+    amount_cents bigint NOT NULL,
+    status text NOT NULL DEFAULT 'active'::text,
+    note text NOT NULL DEFAULT ''::text,
+    used_by_user_id text,
+    used_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone
+);
+CREATE UNIQUE INDEX uniq_redeem_codes_code ON public.redeem_codes USING btree (code);
+

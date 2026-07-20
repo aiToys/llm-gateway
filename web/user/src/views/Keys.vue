@@ -20,6 +20,9 @@
           <n-form-item label="每月 token 上限"><n-input-number v-model:value="form.monthlyTok" :min="0" style="width:100%" placeholder="0" /></n-form-item>
         </div>
         <n-form-item path="ips" label="IP 白名单(可选,逗号分隔,支持 CIDR)"><n-input v-model:value="form.ips" placeholder="留空=不限;例: 10.0.0.5, 192.168.0.0/24" /></n-form-item>
+        <n-form-item path="expires_at" label="过期时间(可选,留空=永不过期)">
+          <n-date-picker v-model:value="form.expiresAt" type="datetime" clearable style="width:100%" placeholder="留空=永不过期" />
+        </n-form-item>
         <n-button type="primary" :loading="creating" :disabled="creating" @click="create">创建</n-button>
       </n-form>
       <n-alert v-if="newKey" type="warning" title="密钥仅此一次显示,请立即复制保存" style="margin-top:12px">
@@ -35,7 +38,7 @@
 
 <script setup>
 import { ref, h, onMounted } from 'vue'
-import { NButton, NDataTable, NModal, NForm, NFormItem, NInput, NInputNumber, NAlert, NTag, NPopconfirm, useMessage } from 'naive-ui'
+import { NButton, NDataTable, NModal, NForm, NFormItem, NInput, NInputNumber, NAlert, NTag, NPopconfirm, NDatePicker, useMessage } from 'naive-ui'
 import { api, apiErr } from '../api.js'
 import { formatTime, copyText } from '../utils.js'
 import { statusLabel, statusType } from '../constants.js'
@@ -46,7 +49,7 @@ const loading = ref(false)
 const showCreate = ref(false)
 const creating = ref(false)
 const formRef = ref(null)
-const form = ref({ name: '', rpm: 0, tpm: 0, ips: '', dailyReq: 0, monthlyReq: 0, dailyTok: 0, monthlyTok: 0 })
+const form = ref({ name: '', rpm: 0, tpm: 0, ips: '', dailyReq: 0, monthlyReq: 0, dailyTok: 0, monthlyTok: 0, expiresAt: null })
 const newKey = ref('')
 const rules = {
   name: { required: true, message: '请输入密钥名称', trigger: 'input' },
@@ -76,7 +79,7 @@ function openCreate() {
   showCreate.value = true
 }
 function resetCreate() {
-  form.value = { name: '', rpm: 0, tpm: 0, ips: '', dailyReq: 0, monthlyReq: 0, dailyTok: 0, monthlyTok: 0 }
+  form.value = { name: '', rpm: 0, tpm: 0, ips: '', dailyReq: 0, monthlyReq: 0, dailyTok: 0, monthlyTok: 0, expiresAt: null }
   newKey.value = ''
 }
 
@@ -104,6 +107,7 @@ async function create() {
       daily_token_limit: form.value.dailyTok,
       monthly_token_limit: form.value.monthlyTok,
       ip_whitelist: parseIPs(form.value.ips),
+      expires_at: form.value.expiresAt ? new Date(form.value.expiresAt).toISOString() : null,
     })
     newKey.value = data.key
     await load()
