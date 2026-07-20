@@ -182,7 +182,7 @@ func (p *Provider) buildReply(req *canon.Request) string {
 	if lastUser != "" {
 		fmt.Fprintf(&sb, " 你说的是: %s", truncate(lastUser, 200))
 	}
-	sb.WriteString("\n\n我是 Mock 供应商,仅用于开发与测试。配置真实渠道(百练/火山方舟/千帆)后将由对应 adapter 响应。")
+	sb.WriteString("\n\n我是 Mock 供应商,仅用于开发与测试。配置真实渠道(百炼/火山方舟/千帆)后将由对应 adapter 响应。")
 	return sb.String()
 }
 

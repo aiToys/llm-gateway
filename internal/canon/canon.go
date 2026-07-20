@@ -45,11 +45,12 @@ type FileRef struct {
 
 // Message 一条消息。Content 为字符串(纯文本)或 ContentPart 数组(多模态)。
 type Message struct {
-	Role       string     `json:"role"`
-	Content    any        `json:"content,omitempty"` // string | []ContentPart
-	Name       string     `json:"name,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          any        `json:"content,omitempty"`            // string | []ContentPart
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // 推理模型思考过程(DeepSeek/GLM/Qwen 等),上游透传
+	Name             string     `json:"name,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 // ToolCall 工具调用(基本透传)。
@@ -80,13 +81,21 @@ type Request struct {
 	Temperature *float64  `json:"temperature,omitempty"`
 	TopP        *float64  `json:"top_p,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Stream      bool      `json:"stream,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
+	// StreamOptions 流式选项。网关在流式路径强制 IncludeUsage=true,确保上游返回 usage 帧,
+	// 否则 OpenAI 兼容上游默认不带 usage → 流式请求 0 token 计费(静默漏计)。
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	Stop        []string  `json:"stop,omitempty"`
 	Tools       []Tool    `json:"tools,omitempty"`
 	ToolChoice  any       `json:"tool_choice,omitempty"`
 	User        string    `json:"user,omitempty"`
 	// 入口标记,用于 egress 决定响应格式。
 	Source string `json:"-"`
+}
+
+// StreamOptions OpenAI 流式选项。
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // Usage token 用量。
@@ -168,12 +177,51 @@ func TextContent(m Message) string {
 }
 
 // AsParts 将 Message.Content 统一为 ContentPart 切片。
+// 支持三种入参形态:强类型 []ContentPart(内部构造)、string(纯文本)、
+// []interface{}(JSON 反序列化的 OpenAI content parts 数组——入口用 ShouldBindJSON
+// 绑定到 canon.Request 时,Content any 会得到此形态)。后者必须在此归一,
+// 否则跨协议多模态(image_url/audio/file)会在出口适配器全部丢失。
 func AsParts(m Message) []ContentPart {
 	switch v := m.Content.(type) {
 	case []ContentPart:
 		return v
 	case string:
 		return []ContentPart{{Type: "text", Text: v}}
+	case []interface{}:
+		out := make([]ContentPart, 0, len(v))
+		for _, it := range v {
+			mp, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			p := ContentPart{}
+			if t, ok := mp["type"].(string); ok {
+				p.Type = t
+			}
+			if s, ok := mp["text"].(string); ok {
+				p.Text = s
+			}
+			if iu, ok := mp["image_url"].(map[string]any); ok {
+				p.ImageURL = &ImageURL{}
+				if u, ok := iu["url"].(string); ok {
+					p.ImageURL.URL = u
+				}
+				if d, ok := iu["detail"].(string); ok {
+					p.ImageURL.Detail = d
+				}
+			}
+			if ia, ok := mp["input_audio"].(map[string]any); ok {
+				p.InputAudio = &InputAudio{}
+				if d, ok := ia["data"].(string); ok {
+					p.InputAudio.Data = d
+				}
+				if f, ok := ia["format"].(string); ok {
+					p.InputAudio.Format = f
+				}
+			}
+			out = append(out, p)
+		}
+		return out
 	}
 	return nil
 }

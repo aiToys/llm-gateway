@@ -2,42 +2,21 @@
 //
 // 设计: 全局单 logger(经 Init 配置),业务包通过 L() 取用;每条日志带 request_id /
 // tenant_id / user_id 等维度,便于按请求聚合排障。运维侧可接 JSON → ELK/Loki。
+//
+// request_id 由 middleware.RequestID 统一注入(经 requestid 包),本包只读取、不重复生成,
+// 保证日志/usage_records/billing_ledger/结构化日志共享同一链路 ID。
 package logging
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"log/slog"
 	"os"
 	"time"
 
 	"github.com/aitoys/llm-gateway/internal/auth"
+	"github.com/aitoys/llm-gateway/internal/requestid"
 	"github.com/gin-gonic/gin"
 )
-
-// newRequestID 生成 8 字节 hex 请求 id。
-func newRequestID() string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-type reqIDKey struct{}
-
-// WithReqID 把 request_id 注入 context,供下游 logging.From 自动提取关联。
-func WithReqID(ctx context.Context, rid string) context.Context {
-	if rid == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, reqIDKey{}, rid)
-}
-
-// ReqIDFrom 从 context 取 request_id(可能为空)。
-func ReqIDFrom(ctx context.Context) string {
-	v, _ := ctx.Value(reqIDKey{}).(string)
-	return v
-}
 
 var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -73,7 +52,7 @@ func L() *slog.Logger { return logger }
 // From 从请求上下文提取 request_id / subject,返回带维度 logger(用于业务日志)。
 func From(ctx context.Context) *slog.Logger {
 	l := logger
-	if rid := ReqIDFrom(ctx); rid != "" {
+	if rid := requestid.FromContext(ctx); rid != "" {
 		l = l.With("req_id", rid)
 	}
 	if sub, ok := auth.FromContext(ctx); ok {
@@ -95,16 +74,10 @@ func statusLevel(status int) slog.Level {
 }
 
 // Middleware gin 请求日志中间件: 记录 method/path/status/latency/request_id/tenant。
+// request_id 由 middleware.RequestID(外层)经 requestid 包注入,此处只读取,不重复生成,
+// 确保与 usage/billing 落库的链路 ID 一致。
 func Middleware() gin.HandlerFunc {
 	return func(g *gin.Context) {
-		rid := g.GetHeader("X-Request-Id")
-		if rid == "" {
-			rid = newRequestID()
-		}
-		g.Set("request_id", rid)
-		g.Header("X-Request-Id", rid)
-		// 注入到 request context,使下游业务日志(logging.From)能自动带上 req_id。
-		g.Request = g.Request.WithContext(WithReqID(g.Request.Context(), rid))
 		start := time.Now()
 		path := g.Request.URL.Path
 		g.Next()
@@ -116,7 +89,7 @@ func Middleware() gin.HandlerFunc {
 			"status", status,
 			"latency_ms", latency.Milliseconds(),
 			"ip", g.ClientIP(),
-			"req_id", g.GetString("request_id"),
+			"req_id", requestid.FromContext(g.Request.Context()),
 		}
 		if sub, ok := auth.FromContext(g.Request.Context()); ok {
 			args = append(args, "tenant_id", sub.TenantID, "user_id", sub.UserID)

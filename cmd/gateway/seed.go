@@ -147,18 +147,18 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 		placeholderKey, _ = cipher.Encrypt("replace-with-real-api-key")
 	}
 
-	// 真实供应商渠道定义: 模型清单 + 渠道级默认成本 + 按模型覆盖成本(供应商官方价,分/百万 token)。
-	// 成本约为面向用户售价的 ~70%,体现毛利;缓存读成本按各供应商官方折扣价。
+	// 真实供应商渠道定义: provider 统一为 openaicomp(adapter 类型),具体供应商由 baseURL 区分。
+	// base_url 与前端 web/admin/src/format.js 的 PROVIDER_TEMPLATES 同源,改动需同步。
 	// costs 值为 [4]int64{输入, 输出, 缓存读, 缓存写}。
 	type chSeed struct {
-		provider, name string
-		models         []string
-		defaultIn      int64
-		defaultOut     int64
-		costs          map[string][4]int64
+		baseURL, name string
+		models        []string
+		defaultIn     int64
+		defaultOut    int64
+		costs         map[string][4]int64
 	}
 	realChs := []chSeed{
-		{provider: "bailian", name: "百炼 · 通义千问",
+		{baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", name: "百炼 · 通义千问",
 			models: []string{"qwen3.7-max", "qwen3-max", "qwen-plus", "qwen-turbo", "qwq-plus"},
 			defaultIn: 168, defaultOut: 672,
 			costs: map[string][4]int64{
@@ -168,28 +168,28 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 				"qwen-turbo":  {21, 42, 0, 0},
 				"qwq-plus":    {112, 280, 0, 0},
 			}},
-		{provider: "volcark", name: "火山方舟 · 豆包",
+		{baseURL: "https://ark.cn-beijing.volces.com/api/v3", name: "火山方舟 · 豆包",
 			models: []string{"doubao-seed-1.6", "doubao-seed-1.6-flash"},
 			defaultIn: 56, defaultOut: 560,
 			costs: map[string][4]int64{
 				"doubao-seed-1.6":       {56, 560, 0, 0},
 				"doubao-seed-1.6-flash": {48, 160, 0, 0},
 			}},
-		{provider: "qianfan", name: "千帆 · 文心",
+		{baseURL: "https://qianfan.baidubce.com/v2", name: "千帆 · 文心",
 			models: []string{"ERNIE-5.1", "ERNIE-4.5-Turbo-128K"},
 			defaultIn: 280, defaultOut: 1260,
 			costs: map[string][4]int64{
 				"ERNIE-5.1":            {280, 1260, 0, 0},
 				"ERNIE-4.5-Turbo-128K": {56, 224, 0, 0},
 			}},
-		{provider: "deepseek", name: "DeepSeek",
+		{baseURL: "https://api.deepseek.com", name: "DeepSeek",
 			models: []string{"deepseek-v4-flash", "deepseek-v4-pro"},
 			defaultIn: 70, defaultOut: 140,
 			costs: map[string][4]int64{
 				"deepseek-v4-flash": {70, 140, 1, 0},
 				"deepseek-v4-pro":   {210, 420, 3, 0},
 			}},
-		{provider: "zhipuai", name: "智谱 · GLM",
+		{baseURL: "https://open.bigmodel.cn/api/paas/v4", name: "智谱 · GLM",
 			models: []string{"glm-5.2", "glm-4.7"},
 			defaultIn: 140, defaultOut: 560,
 			costs: map[string][4]int64{
@@ -214,7 +214,8 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 	}
 
 	channels, _ := st.ListChannels(ctx, "")
-	existProviders := map[string]bool{}
+	// provider 统一为 openaicomp 后无法按 provider 区分供应商,改按渠道名(name)去重。
+	existNames := map[string]bool{}
 	hasMock := false
 	for _, c := range channels {
 		if c.TenantID != nil {
@@ -223,7 +224,7 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 		if c.Provider == "mock" {
 			hasMock = true
 		} else {
-			existProviders[c.Provider] = true
+			existNames[c.Name] = true
 		}
 	}
 	if !hasMock {
@@ -237,18 +238,18 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 		log.Println("created mock fallback channel (priority=10)")
 	}
 	for _, rc := range realChs {
-		if existProviders[rc.provider] {
+		if existNames[rc.name] {
 			continue
 		}
 		if err := st.CreateChannel(ctx, &model.Channel{
-			ID: uuid.NewString(), Provider: rc.provider, Name: rc.name,
-			BaseURL: "", APIKeyEnc: placeholderKey, ChannelModels: buildChannelModels(rc.models, rc.costs),
+			ID: uuid.NewString(), Provider: "openaicomp", Name: rc.name,
+			BaseURL: rc.baseURL, APIKeyEnc: placeholderKey, ChannelModels: buildChannelModels(rc.models, rc.costs),
 			InputCostCentsPerM: rc.defaultIn, OutputCostCentsPerM: rc.defaultOut,
 			Priority: 1, Weight: 1, Status: "active", CreatedAt: now,
 		}); err != nil {
 			return err
 		}
-		log.Printf("created channel: %s (%s) with %d model-level costs", rc.provider, rc.name, len(rc.costs))
+		log.Printf("created channel: %s (%s) with %d model-level costs", rc.name, rc.baseURL, len(rc.costs))
 	}
 
 	// 给 demo 用户一张 API Key(便于命令行测试)

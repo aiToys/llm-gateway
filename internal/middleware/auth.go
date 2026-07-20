@@ -127,10 +127,19 @@ func ipAllowed(clientIP string, whitelist []string) bool {
 			continue
 		}
 		if strings.Contains(rule, "/") {
-			if _, network, err := net.ParseCIDR(rule); err == nil && network.Contains(net.ParseIP(clientIP)) {
-				return true
+			if _, network, err := net.ParseCIDR(rule); err == nil {
+				// net.ParseIP 对异常/污染头返回 nil,network.Contains(nil) 会 panic——必须判空。
+				if ip := net.ParseIP(clientIP); ip != nil && network.Contains(ip) {
+					return true
+				}
 			}
 			continue
+		}
+		// IPv4/IPv6 同址不同表示(如 ::1 与 ::ffff:127.0.0.1)用 Equal 归一,而非字符串严格相等。
+		if ip := net.ParseIP(clientIP); ip != nil {
+			if r := net.ParseIP(rule); r != nil && r.Equal(ip) {
+				return true
+			}
 		}
 		if rule == clientIP {
 			return true
@@ -139,8 +148,12 @@ func ipAllowed(clientIP string, whitelist []string) bool {
 	return false
 }
 
-// JWTAuth 校验 Web JWT。
-func JWTAuth(svc *auth.Service) gin.HandlerFunc {
+// JWTAuth 校验 Web JWT,并(经 Redis 缓存)复查用户/租户状态。
+//
+// 仅校验签名+exp 不足以让管理员"禁用用户/租户"及时生效——已签发的 JWT 在 access_ttl 内仍可用。
+// 此处在 JWT 校验后用短 TTL(1min)缓存复查用户/租户状态:禁用操作最多 1 分钟内对 Web 会话生效。
+// 缓存命中时不查 DB;Redis 不可用则每次查 DB(降级,保证禁用仍能生效)。
+func JWTAuth(svc *auth.Service, s *store.Store, rdb *redis.Client) gin.HandlerFunc {
 	return func(g *gin.Context) {
 		token := auth.Bearer(g.GetHeader("Authorization"))
 		if token == "" {
@@ -152,11 +165,60 @@ func JWTAuth(svc *auth.Service) gin.HandlerFunc {
 			abortAuth(g, "invalid_token")
 			return
 		}
-		sub := auth.Subject{UserID: claims.UserID, TenantID: claims.TenantID, Role: claims.Role, Email: claims.Email}
+		// 复查用户/租户状态(短缓存)。平台管理员(超管)不复查,避免误锁平台管理员账号后无法恢复。
+		if claims.Role != auth.RolePlatformAdmin {
+			userStatus, tenantStatus := loadStatusCached(g.Request.Context(), s, rdb, claims.UserID, claims.TenantID)
+			if userStatus == "disabled" {
+				abortAuth(g, "user_disabled")
+				return
+			}
+			if tenantStatus == "disabled" {
+				abortAuth(g, "tenant_disabled")
+				return
+			}
+		}
+		sub := auth.Subject{UserID: claims.UserID, TenantID: claims.TenantID, Role: claims.Role, Email: claims.Email,
+			TenantStatus: "active", UserStatus: "active"}
 		g.Request = g.Request.WithContext(auth.WithSubject(g.Request.Context(), sub))
 		g.Set("subject", sub)
 		g.Next()
 	}
+}
+
+// loadStatusCached 带 1min Redis 缓存地查询用户/租户状态。
+// Redis 故障时降级为直接查 DB(每次请求),保证禁用操作在无 Redis 时仍生效。
+// DB 查询失败时返回 active(故障不伪装成禁用,避免误拒合法用户;与 APIKeyAuth 同原则)。
+func loadStatusCached(ctx context.Context, s *store.Store, rdb *redis.Client, userID, tenantID string) (userStatus, tenantStatus string) {
+	const ttl = time.Minute
+	cacheKey := "jwtstatus:" + userID
+	if rdb != nil {
+		if b, err := rdb.Get(ctx, cacheKey).Bytes(); err == nil && len(b) > 0 {
+			var v struct {
+				User   string `json:"user"`
+				Tenant string `json:"tenant"`
+			}
+			if json.Unmarshal(b, &v) == nil {
+				return v.User, v.Tenant
+			}
+		}
+	}
+	userStatus = "active"
+	if u, err := s.GetUser(ctx, userID); err == nil {
+		userStatus = u.Status
+	}
+	tenantStatus = "active"
+	if t, err := s.GetTenant(ctx, tenantID); err == nil {
+		tenantStatus = t.Status
+	}
+	if rdb != nil {
+		if b, err := json.Marshal(struct {
+			User   string `json:"user"`
+			Tenant string `json:"tenant"`
+		}{User: userStatus, Tenant: tenantStatus}); err == nil {
+			_ = rdb.Set(ctx, cacheKey, b, ttl).Err()
+		}
+	}
+	return userStatus, tenantStatus
 }
 
 // RequireAdmin 要求主体为任意管理员(平台或租户)。

@@ -71,6 +71,20 @@ func (c *Controller) stream(g *gin.Context, sub auth.Subject, req *canon.Request
 				g.SSEvent("", "[DONE]")
 				return false
 			}
+			// 上游流中途出错:relay 用 StreamError(json:"-") 标记。若当普通 chunk 透传,
+			// 客户端只收到截断的空帧 + [DONE],误以为成功。改为发 OpenAI 风格 error 事件。
+			if chunk.StreamError != "" {
+				errPayload, _ := json.Marshal(map[string]any{
+					"error": map[string]any{
+						"type":    "upstream_stream_error",
+						"message": chunk.StreamError,
+					},
+				})
+				fmt.Fprintf(w, "data: %s\n\n", errPayload)
+				g.Writer.Flush()
+				g.SSEvent("", "[DONE]")
+				return false
+			}
 			b, _ := json.Marshal(chunk)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			g.Writer.Flush()
@@ -88,8 +102,8 @@ func (c *Controller) stream(g *gin.Context, sub auth.Subject, req *canon.Request
 // 请求体: {model, input(string|string[])}. 返回 OpenAI embeddings 响应格式。
 func (c *Controller) Embeddings(g *gin.Context) {
 	var body struct {
-		Model string      `json:"model"`
-		Input any          `json:"input"` // string 或 []string
+		Model string `json:"model"`
+		Input any    `json:"input"` // string 或 []string
 	}
 	if err := g.ShouldBindJSON(&body); err != nil {
 		common.Error(g, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -191,6 +205,20 @@ func (c *Controller) Models(g *gin.Context) {
 // 已知的业务哨兵错误透出明确类型;其余(含上游响应体)一律脱敏为通用 upstream_error,
 // 避免把上游网关内部信息 / trace id / 鉴权调试信息泄露给客户端。
 func (c *Controller) writeRelayErr(g *gin.Context, err error) {
+	// 上游 4xx/5xx 透传: 开关开启时原样回写上游 status code + body + Retry-After,
+	// 让智能客户端据真实错误(429/529 等)自行退避重试;关闭则走下方 default 脱敏为 502。
+	var ue *canon.UpstreamError
+	if errors.As(err, &ue) && c.Relay != nil && c.Relay.PassthroughUpstreamErrors {
+		if ue.RetryAfter != "" {
+			g.Header("Retry-After", ue.RetryAfter)
+		}
+		ct := ue.ContentType
+		if ct == "" {
+			ct = "application/json"
+		}
+		g.Data(ue.StatusCode, ct, ue.Body)
+		return
+	}
 	switch {
 	case errors.Is(err, relay.ErrModelNotFound):
 		common.Error(g, http.StatusNotFound, "model_not_found", "model not found or disabled")

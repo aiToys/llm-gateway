@@ -5,7 +5,7 @@
         <img src="/logo.svg" class="logo-img" alt="logo" />
         <h2>LLM Gateway</h2>
       </div>
-      <p class="sub">统一接入百练 / 火山方舟 / 千帆,兼容 OpenAI 与 Anthropic 协议</p>
+      <p class="sub">统一接入百炼 / 火山方舟 / 千帆,兼容 OpenAI 与 Anthropic 协议</p>
       <n-tabs v-model:value="tab" justify-content="space-evenly">
         <n-tab-pane name="login" tab="登录">
           <n-form ref="lf" :model="loginForm" :rules="loginRules">
@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NTabs, NTabPane, NForm, NFormItem, NInput, NButton, useMessage } from 'naive-ui'
 import { api, user, apiErr } from '../api.js'
@@ -98,10 +98,16 @@ function afterAuth(data) {
   token.set(data.token)
   user.set(data.user)
   message.success('登录成功')
-  // 优先回到登录前试图访问的页面。
+  // 优先回到登录前试图访问的页面;仅允许站内相对路径(防开放重定向)。
   const redirect = route.query.redirect
-  router.push(redirect || '/console/chat')
+  const safe = typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
+  router.push(safe ? redirect : '/console/chat')
 }
+
+onMounted(() => {
+  // 401 过期跳转来此: 提示用户为何被登出,而非无声踢回登录页。
+  if (route.query.expired) message.warning('登录已过期,请重新登录')
+})
 </script>
 
 <style scoped>

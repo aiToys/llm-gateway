@@ -42,7 +42,7 @@
         </div>
         <div class="fcol">
           <h4>供应商</h4>
-          <span>阿里云百练</span>
+          <span>阿里云百炼</span>
           <span>火山方舟</span>
           <span>百度千帆</span>
         </div>

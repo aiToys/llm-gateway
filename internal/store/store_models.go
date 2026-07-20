@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/aitoys/llm-gateway/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -50,6 +51,11 @@ func (s *Store) GetModel(ctx context.Context, name string) (*model.ModelDef, err
 		Scan(&m.ModelName, &m.InputPriceCentsPerM, &m.OutputPriceCentsPerM, &m.CacheReadPriceCentsPerM, &m.CacheWritePriceCentsPerM, &m.Enabled,
 			&m.Description, &m.LongDesc, &m.Tags, &m.Capabilities, &m.ContextLength, &m.RoutingStrategy, &m.PinnedChannelID, &m.Providers)
 	if err != nil {
+		// 将 pgx.ErrNoRows 归一为 ErrNotFound 哨兵,与 store 其余部分一致;
+		// 否则 relay.route 无法区分"模型不存在"(应 404)与底层 DB 错误(500),误报 upstream_error。
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return m, nil

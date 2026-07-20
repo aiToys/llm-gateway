@@ -12,6 +12,10 @@
         <div class="avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
         <div class="bubble-wrap">
           <div class="bubble">
+            <details v-if="m.reasoning" class="reasoning" open>
+              <summary>🧠 思考过程</summary>
+              <pre>{{ m.reasoning }}</pre>
+            </details>
             <pre v-if="m.content">{{ m.content }}</pre><span v-if="m.typing" class="cursor">▍</span>
           </div>
           <div class="msg-actions" v-if="!m.typing && m.content && !m.isError">
@@ -47,7 +51,7 @@
         <n-button :loading="uploading" @click="pickFile" title="上传图片/文件" aria-label="上传附件">📎</n-button>
         <input ref="fileInput" type="file" style="display:none" @change="onFile" />
         <n-button v-if="streaming" type="error" @click="stop">停止</n-button>
-        <n-button v-else type="primary" :disabled="!draft.trim() && !pendingImgs.length" @click="send">发送</n-button>
+        <n-button v-else type="primary" :disabled="!draft.trim() && !pendingImgs.length" @click="send()">发送</n-button>
       </div>
       <div class="attaches" v-if="pendingImgs.length">
         <div class="att" v-for="(img, i) in pendingImgs" :key="i">
@@ -198,7 +202,7 @@ function classifyChatError(status, body) {
   if (status === 402 || type === 'insufficient_balance') return '余额不足,请前往充值后再试'
   if (status === 404 || type === 'model_not_found') return '模型不可用或未启用,请切换模型'
   if (status === 429 || type === 'rate_limit_exceeded') return '请求过于频繁(触发限流),请稍后再试'
-  if (status === 503 || type === 'no_channel') return '当前无可用渠道,请稍后重试或联系管理员'
+  if (status === 503 || type === 'no_channel') return '当前暂无可用服务,请稍后重试或联系管理员'
   if (status >= 500) return '服务暂时不可用,请稍后重试'
   return raw || `请求失败(HTTP ${status})`
 }
@@ -234,7 +238,12 @@ async function streamOnce(userContent, asst) {
       if (payload === '[DONE]') continue
       try {
         const chunk = JSON.parse(payload)
-        if (chunk.choices && chunk.choices[0]) asst.content += chunk.choices[0].delta?.content || ''
+        if (chunk.choices && chunk.choices[0]) {
+          const delta = chunk.choices[0].delta || {}
+          // reasoning_content: 推理模型(DeepSeek/GLM/QwQ)的思考过程,独立于正文展示。
+          if (delta.reasoning_content) asst.reasoning = (asst.reasoning || '') + delta.reasoning_content
+          if (delta.content) asst.content += delta.content
+        }
       } catch {
         // SSE 偶有非 JSON 行(心跳/事件帧),跳过但记录便于上游格式异常时排障。
         console.debug('skip sse line', payload)
@@ -276,7 +285,8 @@ function retryLast() {
 function persist() {
   if (!model.value) return
   try {
-    const clean = messages.value.filter(m => !m.isError).slice(-MAX_HISTORY)
+    // 持久化: 排除 reasoning(思考过程体量大、重生成即可再现),只存 content,避免 localStorage 膨胀。
+    const clean = messages.value.filter(m => !m.isError).slice(-MAX_HISTORY).map(({ reasoning, ...rest }) => rest)
     localStorage.setItem(HISTORY_KEY(model.value), JSON.stringify(clean))
   } catch {}
 }
@@ -313,6 +323,9 @@ async function scroll() {
 .bubble { background:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04) }
 .msg.user .bubble { background:#3D6EFF;color:#fff }
 .bubble pre { margin:0; white-space:pre-wrap; word-break:break-word; font-family:inherit; font-size:14px; line-height:1.7 }
+.reasoning { margin-bottom:8px; border-left:2px solid #d6deea; padding:2px 0 2px 10px; color:#8a92a3 }
+.reasoning summary { cursor:pointer; font-size:12px; user-select:none }
+.reasoning pre { font-size:13px; color:#9aa3b2 }
 .cursor { animation:blink 1s steps(2) infinite; color:#3D6EFF }
 @keyframes blink { 50% { opacity:0 } }
 .msg-actions { display:flex; gap:10px; margin-top:6px; opacity:0; transition:.15s }

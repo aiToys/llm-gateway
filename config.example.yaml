@@ -56,6 +56,9 @@ billing:
   min_balance_cents: 0
   # 无 usage 时的字符估算: 1 token ≈ N 字符(中文/英文混合经验值)
   chars_per_token: 2
+  # 上游 4xx/5xx 原样透传给客户端(默认 true)。代理自用场景开启,让客户端据真实状态码(429/529)
+  # 与 body(Retry-After/error.type)自行退避重试;对外多租户服务建议 false,防泄露上游内部信息。
+  passthrough_upstream_errors: true
 
 # 请求/响应原文日志(生产排障 / 合规审计)。默认关闭(隐私与存储考量),按需开启。
 req_log:
@@ -68,6 +71,16 @@ req_log:
 # 开发期默认使用 Mock 供应商。生产环境在管理端配置真实渠道。
 defaults:
   default_provider: "mock"
+
+# 内置前端 SPA 产物路径(空则不托管,前端走独立 dev server)+ 聊天台限流。
+web:
+  user_dist: "web/user/dist"   # 用户端 SPA 产物
+  admin_dist: "web/admin/dist" # 管理端 SPA 产物
+  # 聊天台(JWT 鉴权、无 API Key)每用户默认限流,防止登录用户绕过 API Key 限额冲击上游。
+  # 0=不限;生产建议保留非零默认值。API Key 路径的限流不受此影响(用 Key 自身配额)。
+  playground:
+    rpm_limit: 60    # 每用户每分钟请求数
+    tpm_limit: 60000 # 每用户每分钟 token 数
 
 # 网关接入点(数据面/edge)配置。
 # addr 留空: 接入点与控制面同进程同端口(默认,适合单实例/开发)。

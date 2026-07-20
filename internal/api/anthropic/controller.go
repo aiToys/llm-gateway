@@ -87,8 +87,10 @@ type response struct {
 	Content    []contentBlock `json:"content"`
 	StopReason string         `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	} `json:"usage"`
 }
 
@@ -102,6 +104,16 @@ func (c *Controller) Messages(g *gin.Context) {
 	sub, ok := auth.FromContext(g.Request.Context())
 	if !ok {
 		common.AnthropicError(g, http.StatusUnauthorized, "authentication_error", "missing subject")
+		return
+	}
+	// Anthropic 原生协议要求 messages 非空、max_tokens 必填且 >0;前置校验给出明确 400,
+	// 而非透传到上游返回模糊错误(max_tokens 缺失会被 canon 默认 4096 掩盖,客户端难排查)。
+	if len(req.Messages) == 0 {
+		common.AnthropicError(g, http.StatusBadRequest, "invalid_request_error", "messages: at least one message is required")
+		return
+	}
+	if req.MaxTokens <= 0 {
+		common.AnthropicError(g, http.StatusBadRequest, "invalid_request_error", "max_tokens: must be a positive integer")
 		return
 	}
 	creq, err := toCanon(&req)
@@ -122,6 +134,31 @@ func (c *Controller) Messages(g *gin.Context) {
 	}
 	g.Header("X-Request-Id", meta.RequestID)
 	g.JSON(http.StatusOK, fromCanon(resp))
+}
+
+// CountTokens POST /v1/messages/count_tokens
+// Anthropic token 计数端点。Claude Code 等客户端用它做上下文预算/裁剪决策;
+// 不追求精确(上游 GLM 与 Claude tokenizer 不同),按字符粗估(2 字符/token,与 relay.estimatePromptTokens 同源)即可。
+// 鉴权仍走 APIKeyAuth 中间件(与 /v1/messages 同组),此处不再重复校验。
+func (c *Controller) CountTokens(g *gin.Context) {
+	var req request
+	if err := g.ShouldBindJSON(&req); err != nil {
+		common.AnthropicError(g, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	creq, err := toCanon(&req)
+	if err != nil {
+		common.AnthropicError(g, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	chars := 0
+	for _, m := range creq.Messages {
+		chars += len(canon.TextContent(m))
+	}
+	if chars < 1 {
+		chars = 1
+	}
+	g.JSON(http.StatusOK, gin.H{"input_tokens": chars/2 + 1})
 }
 
 func (c *Controller) stream(g *gin.Context, sub auth.Subject, req *canon.Request) {
@@ -469,6 +506,8 @@ func fromCanon(r *canon.Response) *response {
 	}
 	out.Usage.InputTokens = r.Usage.PromptTokens
 	out.Usage.OutputTokens = r.Usage.CompletionTokens
+	out.Usage.CacheReadInputTokens = r.Usage.CacheReadTokens
+	out.Usage.CacheCreationInputTokens = r.Usage.CacheWriteTokens
 	return out
 }
 
@@ -490,6 +529,20 @@ func mapStop(finish string) string {
 // 用 errors.Is 识别哨兵(容忍 %w 包装)。relay 哨兵均为 errors.New 且直接返回,无字符串重构造,
 // 故无需 err.Error()==sentinel.Error() 的脆弱字符串回退(被包装/本地化即失效)。
 func (c *Controller) writeErr(g *gin.Context, err error) {
+	// 上游 4xx/5xx 透传: 开关开启时原样回写上游 status code + body + Retry-After,
+	// 让智能客户端据真实错误(429/529 等)自行退避重试;关闭则走下方 default 脱敏为 502。
+	var ue *canon.UpstreamError
+	if errors.As(err, &ue) && c.Relay != nil && c.Relay.PassthroughUpstreamErrors {
+		if ue.RetryAfter != "" {
+			g.Header("Retry-After", ue.RetryAfter)
+		}
+		ct := ue.ContentType
+		if ct == "" {
+			ct = "application/json"
+		}
+		g.Data(ue.StatusCode, ct, ue.Body)
+		return
+	}
 	switch {
 	case errors.Is(err, relay.ErrModelNotFound):
 		common.AnthropicError(g, http.StatusNotFound, "not_found_error", "model not found or disabled")

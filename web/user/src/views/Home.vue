@@ -3,14 +3,14 @@
     <section class="hero">
       <div class="badge"><span class="pulse"></span>多渠道热备 · 实时计费 · 开源可自部署</div>
       <h1>一个大模型网关,<br/>接入<span>全部</span>主流供应商</h1>
-      <p>统一 OpenAI / Anthropic 兼容接口,一键打通阿里云百练、火山方舟、百度千帆。<br/>预付计费、用量看板、多租户管理,开箱即用。</p>
+      <p>统一 OpenAI / Anthropic 兼容接口,一键打通阿里云百炼、火山方舟、百度千帆、DeepSeek、智谱等主流供应商。<br/>预付计费、用量看板、多租户管理,开箱即用。</p>
       <div class="cta">
         <n-button type="primary" size="large" @click="$router.push('/models')">浏览模型</n-button>
         <n-button size="large" @click="$router.push('/console/chat')" v-if="loggedIn">进入控制台</n-button>
         <n-button size="large" @click="$router.push('/login')" v-else>免费开始</n-button>
       </div>
       <div class="providers">
-        <span>阿里云百练</span><span>火山方舟</span><span>百度千帆</span><span>Mock(开发)</span>
+        <span>阿里云百炼</span><span>火山方舟</span><span>百度千帆</span><span>DeepSeek</span><span>智谱 GLM</span>
       </div>
     </section>
 
@@ -88,13 +88,18 @@ const loggedIn = computed(() => !!token.get())
 const featured = computed(() => models.value.slice(0, 4))
 // 统计指标: 模型数与供应商数由真实数据计算,避免静态造假。
 const modelCount = computed(() => models.value.length)
-const providerCount = computed(() => new Set(models.value.flatMap(m => m.providers || [])).size)
+// 接入供应商数: 排除 mock(开发兜底,非真实上游),避免对用户呈现虚高数字。
+const providerCount = computed(() => new Set(models.value.flatMap(m => m.providers || []).filter(p => p && p !== 'mock')).size)
 const sampleModel = computed(() => models.value[0]?.model_name || 'qwen-max')
 // 跳转对话:已登录带入选中的模型,未登录去登录页。
 function goTry(m) {
   router.push(loggedIn.value ? { name: 'chat', query: { model: m.model_name } } : '/login')
 }
-onMounted(async () => { const { data } = await api.publicModels(); models.value = data.data || [] })
+onMounted(async () => {
+  // 公开模型加载失败不阻断首屏(统计区有 v-if 兜底),仅静默降级。
+  try { const { data } = await api.publicModels(); models.value = data.data || [] }
+  catch { models.value = [] }
+})
 
 // --- API 代码示例(三语言) ---
 const tabs = [

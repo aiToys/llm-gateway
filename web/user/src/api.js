@@ -16,9 +16,9 @@ http.interceptors.response.use(
     if (err.response && err.response.status === 401) {
       logout()
       if (location.pathname !== '/login') {
-        // 携带 redirect,登录后回到原页面。
+        // 携带 redirect,登录后回到原页面;expired=1 让登录页提示"登录已过期"。
         const redirect = encodeURIComponent(location.pathname + location.search)
-        location.href = `/login?redirect=${redirect}`
+        location.href = `/login?redirect=${redirect}&expired=1`
       }
     }
     return Promise.reject(err)

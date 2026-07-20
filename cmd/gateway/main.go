@@ -20,6 +20,7 @@ import (
 	"github.com/aitoys/llm-gateway/internal/config"
 	"github.com/aitoys/llm-gateway/internal/logging"
 	"github.com/aitoys/llm-gateway/internal/metrics"
+	"github.com/aitoys/llm-gateway/internal/middleware"
 	"github.com/aitoys/llm-gateway/internal/payment"
 	"github.com/aitoys/llm-gateway/internal/static"
 	"github.com/aitoys/llm-gateway/internal/store"
@@ -84,9 +85,10 @@ func main() {
 	r := gin.New()
 	bootstrap.ApplyTrustedProxies(r, cfg)
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestID()) // 最外层注入 request_id,使日志/usage/billing 共享同一链路 ID
 	r.Use(logging.Middleware())
 	r.Use(cors.New(corsConfig(cfg)))
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true, "version": version.Version}) })
 	r.GET("/readyz", gin.WrapF(deps.ReadyHandler()))
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
@@ -104,7 +106,8 @@ func main() {
 
 	// 控制面 REST
 	webServer := &web.Server{Store: deps.Store, Auth: deps.Auth, Billing: deps.Billing, Relay: deps.Relay, Cipher: deps.Cipher, RDB: deps.RDB, FileSvc: deps.Files,
-		Payment: deps.Payment, Dev: cfg.Dev, AllowSignup: cfg.Auth.AllowSignup}
+		Payment: deps.Payment, Dev: cfg.Dev, AllowSignup: cfg.Auth.AllowSignup,
+		Playground: middleware.PlaygroundLimits{RPMLimit: cfg.Web.Playground.RPMLimit, TPMLimit: cfg.Web.Playground.TPMLimit}}
 	webServer.Register(r)
 
 	// 后台 worker(payment sweeper / billing retry)共用一个可取消 root context,

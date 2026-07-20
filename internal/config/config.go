@@ -35,10 +35,10 @@ type Log struct {
 }
 
 type Server struct {
-	Addr            string   `yaml:"addr"`
-	PublicURL       string   `yaml:"public_url"`
-	CORSOrigins     []string `yaml:"cors_origins"`     // 允许的跨域 Origin;为空则不发送 CORS 头(仅同源)
-	TrustedProxies  []string `yaml:"trusted_proxies"`  // 受信代理 CIDR(用于 ClientIP 解析 X-Forwarded-For);空=不信任任何代理
+	Addr           string   `yaml:"addr"`
+	PublicURL      string   `yaml:"public_url"`
+	CORSOrigins    []string `yaml:"cors_origins"`    // 允许的跨域 Origin;为空则不发送 CORS 头(仅同源)
+	TrustedProxies []string `yaml:"trusted_proxies"` // 受信代理 CIDR(用于 ClientIP 解析 X-Forwarded-For);空=不信任任何代理
 }
 
 type Postgres struct {
@@ -87,8 +87,9 @@ type Files struct {
 }
 
 type Billing struct {
-	MinBalanceCents int64 `yaml:"min_balance_cents"`
-	CharsPerToken   int   `yaml:"chars_per_token"`
+	MinBalanceCents           int64 `yaml:"min_balance_cents"`
+	CharsPerToken             int   `yaml:"chars_per_token"`
+	PassthroughUpstreamErrors bool  `yaml:"passthrough_upstream_errors"` // 上游 4xx/5xx 原样透传给客户端(默认 true;对外多租户建议 false 防泄露上游内部信息)
 }
 
 // ReqLog 请求/响应原文日志配置。默认关闭(隐私与存储考量),按需开启。
@@ -108,6 +109,15 @@ type Defaults struct {
 type Web struct {
 	UserDist  string `yaml:"user_dist"`
 	AdminDist string `yaml:"admin_dist"`
+	// Playground 针对聊天台(JWT 鉴权,无 API Key)的默认限流,防止登录用户绕过 API Key 限额
+	// 无限冲击上游。0=不限(向下兼容;生产建议设非零值)。
+	Playground PlaygroundLimits `yaml:"playground"`
+}
+
+// PlaygroundLimits 聊天台默认每用户限流。
+type PlaygroundLimits struct {
+	RPMLimit int `yaml:"rpm_limit"` // 每用户每分钟请求数;0=不限
+	TPMLimit int `yaml:"tpm_limit"` // 每用户每分钟 token 数;0=不限
 }
 
 // Payment 支付配置(预付充值: 微信支付 Native + 支付宝电脑网站支付 + mock)。
@@ -115,28 +125,28 @@ type Web struct {
 //   - mock=true 时仅启用 mock provider,不依赖任何商户资质(开发/测试用)。
 //   - 各渠道 enabled 控制是否注册;未配置密钥的渠道不应启用(装配时会跳过并告警)。
 type Payment struct {
-	BaseURL      string        `yaml:"base_url"`
-	ExpiresMin   int           `yaml:"expires_minutes"` // 订单有效期,默认 15
-	Mock         bool          `yaml:"mock"`             // 强制只用 mock(便于无商户号验证全链路)
-	Wechat       WechatConfig  `yaml:"wechat"`
-	Alipay       AlipayConfig  `yaml:"alipay"`
+	BaseURL    string       `yaml:"base_url"`
+	ExpiresMin int          `yaml:"expires_minutes"` // 订单有效期,默认 15
+	Mock       bool         `yaml:"mock"`            // 强制只用 mock(便于无商户号验证全链路)
+	Wechat     WechatConfig `yaml:"wechat"`
+	Alipay     AlipayConfig `yaml:"alipay"`
 }
 
 // WechatConfig 微信支付(Native 扫码)配置。
 type WechatConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	AppID          string `yaml:"appid"`
-	MchID          string `yaml:"mchid"`
-	MchSerialNo    string `yaml:"mch_serial_no"`
-	PrivateKey     string `yaml:"private_key"`   // PEM 文本或 apiclient_key.pem 路径
-	APIv3Key       string `yaml:"api_v3_key"`
+	Enabled     bool   `yaml:"enabled"`
+	AppID       string `yaml:"appid"`
+	MchID       string `yaml:"mchid"`
+	MchSerialNo string `yaml:"mch_serial_no"`
+	PrivateKey  string `yaml:"private_key"` // PEM 文本或 apiclient_key.pem 路径
+	APIv3Key    string `yaml:"api_v3_key"`
 }
 
 // AlipayConfig 支付宝(电脑网站支付)配置。
 type AlipayConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	AppID           string `yaml:"appid"`
-	PrivateKey      string `yaml:"private_key"`      // 应用私钥 PEM 文本
+	PrivateKey      string `yaml:"private_key"`       // 应用私钥 PEM 文本
 	AlipayPublicKey string `yaml:"alipay_public_key"` // 支付宝公钥 PEM 文本
 	Sandbox         bool   `yaml:"sandbox"`           // true=沙箱
 }
@@ -174,11 +184,15 @@ func defaults() *Config {
 		// Validate() 会拒绝启动,避免用公开弱密钥"裸奔"。开发态设 dev:true 放宽。
 		Auth:     Auth{AccessTTL: "15m", RefreshTTL: "168h"},
 		Files:    Files{Storage: "local", LocalRoot: "./data/files", BaseURL: "http://localhost:8080"},
-		Billing:  Billing{MinBalanceCents: 0, CharsPerToken: 2},
+		Billing:  Billing{MinBalanceCents: 0, CharsPerToken: 2, PassthroughUpstreamErrors: true},
 		ReqLog:   ReqLog{Enabled: false, SampleRate: 1.0, MaxBodyBytes: 32 * 1024, RetainDays: 7, LogBodies: true},
 		Defaults: Defaults{DefaultProvider: "mock"},
-		Web:      Web{UserDist: "web/user/dist", AdminDist: "web/admin/dist"},
-		Payment:  Payment{ExpiresMin: 15},
+		Web: Web{
+			UserDist: "web/user/dist", AdminDist: "web/admin/dist",
+			// 聊天台默认每用户限流:防止登录用户(JWT,无 API Key)无限冲击上游。
+			Playground: PlaygroundLimits{RPMLimit: 60, TPMLimit: 60000},
+		},
+		Payment: Payment{ExpiresMin: 15},
 	}
 }
 
@@ -208,10 +222,10 @@ func (c *Config) Validate() error {
 		return nil
 	}
 	if isWeak(c.Auth.JWTSecret, knownWeakJWTSecrets) {
-		return fmt.Errorf("auth.jwt_secret 未配置或为示例值;生产环境必须设置一个唯一且足够长的密钥(建议 >= 32 字节)")
+		return fmt.Errorf("auth.jwt_secret 未配置或为示例值;生产环境必须设置一个唯一且足够长的密钥(>= 32 字节)")
 	}
-	if len(c.Auth.JWTSecret) < 16 {
-		return fmt.Errorf("auth.jwt_secret 过短(>= 16 字符);当前 %d 字符", len(c.Auth.JWTSecret))
+	if len(c.Auth.JWTSecret) < 32 {
+		return fmt.Errorf("auth.jwt_secret 过短(HS256 安全强度要求 >= 32 字节);当前 %d 字符", len(c.Auth.JWTSecret))
 	}
 	if isWeak(c.Auth.ChannelKeyMaster, knownWeakMasters) {
 		return fmt.Errorf("auth.channel_key_master 未配置或为示例值;生成: openssl rand -hex 32")
@@ -336,6 +350,7 @@ func applyEnv(c *Config) {
 	c.Files.BaseURL = setStr("GATEWAY_FILES__BASE_URL", c.Files.BaseURL)
 	c.Billing.MinBalanceCents = setInt64("GATEWAY_BILLING__MIN_BALANCE_CENTS", c.Billing.MinBalanceCents)
 	c.Billing.CharsPerToken = setInt("GATEWAY_BILLING__CHARS_PER_TOKEN", c.Billing.CharsPerToken)
+	c.Billing.PassthroughUpstreamErrors = setBool("GATEWAY_BILLING__PASSTHROUGH_UPSTREAM_ERRORS", c.Billing.PassthroughUpstreamErrors)
 	// ReqLog: 线上可经环境变量紧急开关/调采样,无需改 yaml 重启。
 	c.ReqLog.Enabled = setBool("GATEWAY_REQ_LOG__ENABLED", c.ReqLog.Enabled)
 	c.ReqLog.SampleRate = setFloat("GATEWAY_REQ_LOG__SAMPLE_RATE", c.ReqLog.SampleRate)

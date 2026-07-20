@@ -59,7 +59,7 @@ func TestApplyEnvCoversFields(t *testing.T) {
 	t.Setenv("GATEWAY_BILLING__CHARS_PER_TOKEN", "3")
 	t.Setenv("GATEWAY_LOG__LEVEL", "debug")
 	t.Setenv("GATEWAY_LOG__FORMAT", "json")
-	t.Setenv("GATEWAY_DEFAULTS__DEFAULT_PROVIDER", "bailian")
+	t.Setenv("GATEWAY_DEFAULTS__DEFAULT_PROVIDER", "openaicomp")
 	t.Setenv("GATEWAY_WEB__USER_DIST", "/x/user")
 	t.Setenv("GATEWAY_EDGE__ADDR", ":8090")
 	t.Setenv("GATEWAY_EDGE__STANDALONE", "true")
@@ -79,7 +79,7 @@ func TestApplyEnvCoversFields(t *testing.T) {
 	if c.Log.Level != "debug" || c.Log.Format != "json" {
 		t.Fatalf("log env not applied: %+v", c.Log)
 	}
-	if c.Defaults.DefaultProvider != "bailian" {
+	if c.Defaults.DefaultProvider != "openaicomp" {
 		t.Fatalf("defaults env not applied: %s", c.Defaults.DefaultProvider)
 	}
 	if c.Web.UserDist != "/x/user" {
@@ -98,7 +98,7 @@ func TestApplyEnvCoversFields(t *testing.T) {
 
 func rand32(t *testing.T) string {
 	t.Helper()
-	// 32 字符的合法 jwt(>=16)
+	// 32 字符的合法 jwt(>=32)
 	return "0123456789abcdef0123456789abcdef"
 }
 

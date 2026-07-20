@@ -4,7 +4,7 @@ title: 数据模型
 
 # 数据模型
 
-Postgres schema 由 `internal/store/migrations/0001~0022` 渐进式迁移定义（含若干次领域模型修正）。本文列出核心表与字段，并解释关键设计决策的**为什么**。
+Postgres schema 由 `internal/store/migrations/` 下的 SQL 迁移定义。v0.2.0 起历史增量迁移已合并为单一初始 schema（`0001_initial_schema`），本文列出核心表与字段，并解释关键设计决策的**为什么**（文中的历史迁移编号保留作为演进脉络）。
 
 > 金额一律以**分（cents）**整数存储（`*_cents_per_m` = 每百万 token 的分），避免浮点误差。
 

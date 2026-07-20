@@ -50,17 +50,17 @@ title: 多供应商负载均衡
 
 | 渠道 | provider | priority | weight |
 | --- | --- | --- | --- |
-| 百练渠道 | `bailian` | 10 | 5 |
+| 百炼渠道 | `bailian` | 10 | 5 |
 | 火山方舟渠道 | `volcark` | 10 | 3 |
 | 千帆渠道 | `qianfan` | 5 | 1 |
 
-优先级分组：`{priority=10}` 为主组（百练、方舟），`{priority=5}` 为备组（千帆）。
+优先级分组：`{priority=10}` 为主组（百炼、方舟），`{priority=5}` 为备组（千帆）。
 
 ### `weighted`（默认）下的流量分布
 
 主组（priority=10）健康时，全部流量落在主组内，按权重分摊：
 
-- 百练：`5 / (5+3) = 62.5%`
+- 百炼：`5 / (5+3) = 62.5%`
 - 火山方舟：`3 / (5+3) = 37.5%`
 - 千帆（priority=5）：`0%`，仅作故障转移
 
@@ -68,7 +68,7 @@ title: 多供应商负载均衡
 
 ### `failover` 下的主备
 
-只认最高优先级组里的**第一个**作主。主组 priority=10 内按定义顺序取第一个（如百练）为主，方舟、千帆全部作备。主挂 → 切下一个备。
+只认最高优先级组里的**第一个**作主。主组 priority=10 内按定义顺序取第一个（如百炼）为主，方舟、千帆全部作备。主挂 → 切下一个备。
 
 ### `pinned` 下的固定渠道
 
@@ -81,7 +81,7 @@ curl -X POST https://gateway.example.com/api/admin/channels \
   -H "Authorization: Bearer <ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "百练-gpt-4o",
+    "name": "百炼-gpt-4o",
     "provider": "bailian",
     "api_key": "<明文KEY，服务端用AES-GCM加密存储>",
     "channel_models": [

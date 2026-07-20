@@ -13,7 +13,7 @@ http.interceptors.response.use((r) => r, (err) => {
     // 管理端登录页在 /admin/login,/login 是用户端登录页,跳错会导致"刷新变成用户界面"。
     if (!location.pathname.startsWith('/admin/login')) {
       const redirect = encodeURIComponent(location.pathname + location.search)
-      location.href = `/admin/login?redirect=${redirect}`
+      location.href = `/admin/login?redirect=${redirect}&expired=1`
     }
   }
   return Promise.reject(err)

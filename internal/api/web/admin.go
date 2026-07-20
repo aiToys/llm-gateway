@@ -442,6 +442,9 @@ func (s *Server) adminCreateChannel(g *gin.Context) {
 	if !s.bindJSON(g, &req) {
 		return
 	}
+	if s.validateChannelBaseURL(g, req.BaseURL) {
+		return
+	}
 	enc := ""
 	if req.APIKey != "" {
 		var err error
@@ -483,6 +486,9 @@ func (s *Server) adminCreateChannel(g *gin.Context) {
 func (s *Server) adminUpdateChannel(g *gin.Context) {
 	var req createChannelReq
 	if !s.bindJSON(g, &req) {
+		return
+	}
+	if s.validateChannelBaseURL(g, req.BaseURL) {
 		return
 	}
 	id := g.Param("id")

@@ -17,30 +17,38 @@
       <div class="card"><div class="k">维度数</div><div class="v">{{ dims }}</div></div>
     </div>
 
-    <div class="chart"><v-chart :option="chartOption" autoresize style="height:300px" /></div>
+    <div class="chart">
+      <n-spin :show="loading">
+        <v-chart v-if="rows.length" :option="chartOption" autoresize style="height:300px" />
+        <n-empty v-else size="small" description="暂无数据,调整筛选或时间范围试试" style="padding:80px 0" />
+      </n-spin>
+    </div>
 
     <h4 style="margin:20px 0 10px">明细 · {{ dimLabel }} / {{ bucketLabel }}粒度</h4>
-    <n-data-table :columns="cols" :data="tableRows" :bordered="false" size="small" />
+    <n-data-table :columns="cols" :data="tableRows" :bordered="false" size="small" :loading="loading" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { NSelect, NButton, NDataTable } from 'naive-ui'
+import { NSelect, NButton, NDataTable, NSpin, NEmpty, useMessage } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { api } from '../api.js'
+import { provLabel, apiErr } from '../format.js'
 
 use([CanvasRenderer, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
+const message = useMessage()
 const groupBy = ref('model')
 const bucket = ref('hour')
 const scope = ref('all')
 const days = ref(1)
 const rows = ref([])
+const loading = ref(false)
 
 const dimOpts = [
   { label: '按模型', value: 'model' },
@@ -92,7 +100,8 @@ const chartOption = computed(() => {
 })
 
 const cols = [
-  { title: '维度', key: 'dim', render: r => r.dim || '(未知)' },
+  // provider 维度的 dim 是 adapter 类型(openaicomp),用 provLabel 映射成友好名,避免技术术语泄露。
+  { title: '维度', key: 'dim', render: r => (groupBy.value === 'provider' ? provLabel(r.dim) : (r.dim || '(未知)')) },
   { title: '请求数', key: 'requests' },
   { title: '输入 token', key: 'input_tokens' },
   { title: '输出 token', key: 'output_tokens' },
@@ -100,8 +109,16 @@ const cols = [
 ]
 
 async function load() {
-  const { data } = await api.usageAggregate({ group_by: groupBy.value, bucket: bucket.value, scope: scope.value, days: days.value })
-  rows.value = data.data || []
+  loading.value = true
+  try {
+    const { data } = await api.usageAggregate({ group_by: groupBy.value, bucket: bucket.value, scope: scope.value, days: days.value })
+    rows.value = data.data || []
+  } catch (e) {
+    message.error(apiErr(e, '数据加载失败'))
+    rows.value = []
+  } finally {
+    loading.value = false
+  }
 }
 watch([groupBy, bucket, scope, days], load)
 onMounted(load)

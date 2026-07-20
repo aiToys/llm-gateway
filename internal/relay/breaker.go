@@ -13,7 +13,12 @@ import (
 // CircuitBreaker 渠道熔断器抽象。
 // 多 edge 副本部署时应使用 Redis 实现,使熔断状态跨副本共享。
 type CircuitBreaker interface {
+	// IsOpen 只读查询当前是否处于熔断打开态(不消费半开探测名额)。
+	// 用于路由过滤、管理端健康展示等"只看不动"场景。
+	IsOpen(ctx context.Context, id string) bool
 	// Allow 是否放行(关闭/半开→放行;打开中→拒绝)。
+	// 注意:Redis 实现在冷却到期后的半开端点会以 SetNX 原子抢占"探测名额",有副作用——
+	// 仅在真正决定调用该渠道之前调用,禁止用于遍历过滤多个候选渠道。
 	Allow(ctx context.Context, id string) bool
 	// OnSuccess 调用成功,复位。
 	OnSuccess(ctx context.Context, id string)
@@ -44,6 +49,16 @@ func NewBreaker(threshold int, cooldown time.Duration) CircuitBreaker {
 		cooldown = 60 * time.Second
 	}
 	return &memBreaker{threshold: threshold, cooldown: cooldown, state: make(map[string]*memState)}
+}
+
+func (b *memBreaker) IsOpen(_ context.Context, id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.state[id]
+	if s == nil {
+		return false
+	}
+	return time.Now().Before(s.openUntil)
 }
 
 func (b *memBreaker) Allow(_ context.Context, id string) bool {
@@ -120,6 +135,17 @@ func NewRedisBreaker(rdb *redis.Client, threshold int, cooldown time.Duration) C
 func (b *redisBreaker) openKey(id string) string  { return "cb:" + id + ":open" }
 func (b *redisBreaker) failKey(id string) string  { return "cb:" + id + ":fail" }
 func (b *redisBreaker) probeKey(id string) string { return "cb:" + id + ":probe" }
+
+// IsOpen 只读查询熔断是否打开(仅 EXISTS openKey,不消费半开探测名额)。
+// route 过滤候选渠道、ChannelOpen 管理端展示健康时使用;避免遍历多个候选时
+// 把每个渠道的探测名额都占满导致冷却结束后恢复极慢。
+func (b *redisBreaker) IsOpen(ctx context.Context, id string) bool {
+	n, err := b.rdb.Exists(ctx, b.openKey(id)).Result()
+	if err != nil {
+		return false // Redis 故障视为未熔断(放行),由故障转移兜底
+	}
+	return n > 0
+}
 
 func (b *redisBreaker) Allow(ctx context.Context, id string) bool {
 	openK, probeK := b.openKey(id), b.probeKey(id)

@@ -4,7 +4,7 @@ layout: home
 hero:
   name: LLM Gateway
   text: 多租户 LLM 网关
-  tagline: 统一 OpenAI / Anthropic 协议，对接百练·火山方舟·千帆，负载均衡与计费内建
+  tagline: 统一 OpenAI / Anthropic 协议，对接百炼·火山方舟·千帆，负载均衡与计费内建
   image:
     src: /logo.svg
     alt: LLM Gateway logo

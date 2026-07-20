@@ -198,22 +198,6 @@ func (s *Service) Recharge(ctx context.Context, tenantID, userID string, amountC
 	return nb, err
 }
 
-// Refund 退款(用于流式中断等)。amount 为正数,会加回余额,单事务记账。
-func (s *Service) Refund(ctx context.Context, tenantID, userID, requestID, modelName string, amountCents int64) (int64, error) {
-	if amountCents <= 0 {
-		return 0, nil
-	}
-	leg := &model.BillingLedger{
-		ID: mustID(), TenantID: tenantID, UserID: userID, RequestID: requestID, Model: modelName,
-		PriceCents: -amountCents, Type: model.LedgerRefund, CreatedAt: time.Now(),
-	}
-	nb, err := s.Store.AdjustAtomic(ctx, leg, nil)
-	if err == nil {
-		metrics.ObserveCharge("refund", amountCents)
-	}
-	return nb, err
-}
-
 // Adjust 管理员手动调整用户余额: deltaCents>0 加余额,<0 扣余额。
 // 必须走账本(AdjustAtomic)以保证"账本=余额唯一真相"不变量——裸改 users.balance_cents
 // 会让账实不一致、对账断裂、无法追溯。扣到负数时由 users.balance_cents>=0 CHECK 拒绝。

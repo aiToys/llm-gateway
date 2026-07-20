@@ -17,9 +17,9 @@ import (
 	"github.com/aitoys/llm-gateway/internal/crypto"
 	"github.com/aitoys/llm-gateway/internal/logging"
 	"github.com/aitoys/llm-gateway/internal/metrics"
-	"github.com/aitoys/llm-gateway/internal/middleware"
 	"github.com/aitoys/llm-gateway/internal/model"
 	"github.com/aitoys/llm-gateway/internal/provider"
+	"github.com/aitoys/llm-gateway/internal/requestid"
 	"github.com/aitoys/llm-gateway/internal/store"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -34,16 +34,17 @@ var (
 
 // Service relay 服务。
 type Service struct {
-	Store           *store.Store
-	Providers       *provider.Registry
-	Billing         *billing.Service
-	Cipher          *crypto.Cipher
-	DefaultProvider string
-	Breaker         CircuitBreaker
-	RDB             *redis.Client // 可选,round_robin 跨副本游标用;为 nil 时回退 weighted。
-	MinBalanceCents int64         // 余额低于此值拒绝请求(透支防护的第一道闸)
-	CharsPerToken   int           // 输入成本估算用: 1 token ≈ N 字符;preflight 据此预估 prompt 成本
-	ReqLog          ReqLogCfg     // 请求/响应原文日志配置
+	Store                     *store.Store
+	Providers                 *provider.Registry
+	Billing                   *billing.Service
+	Cipher                    *crypto.Cipher
+	DefaultProvider           string
+	Breaker                   CircuitBreaker
+	RDB                       *redis.Client // 可选,round_robin 跨副本游标用;为 nil 时回退 weighted。
+	MinBalanceCents           int64         // 余额低于此值拒绝请求(透支防护的第一道闸)
+	CharsPerToken             int           // 输入成本估算用: 1 token ≈ N 字符;preflight 据此预估 prompt 成本
+	PassthroughUpstreamErrors bool          // 上游 4xx/5xx 原样透传给客户端(默认 true;对外多租户可关防泄露上游内部信息)
+	ReqLog                    ReqLogCfg     // 请求/响应原文日志配置
 }
 
 // ReqLogCfg 请求日志配置(原生类型,避免 relay→config 循环依赖;由 bootstrap 从 config 映射)。
@@ -79,7 +80,12 @@ type resolvedChannel struct {
 func (s *Service) route(ctx context.Context, sub auth.Subject, modelName string) (*model.ModelDef, []resolvedChannel, error) {
 	p, err := s.Store.EffectivePrice(ctx, sub.TenantID, modelName)
 	if err != nil {
-		return nil, nil, ErrModelNotFound
+		// 区分"模型不存在/已禁用"(404)与底层 DB 错误(500):后者原先一律映射为
+		// ErrModelNotFound,PG 抖动时用户看到"模型不存在",排障困难。
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil, ErrModelNotFound
+		}
+		return nil, nil, err
 	}
 	if !p.Enabled {
 		return nil, nil, ErrModelNotFound
@@ -90,10 +96,13 @@ func (s *Service) route(ctx context.Context, sub auth.Subject, modelName string)
 		return nil, nil, err
 	}
 	// 过滤熔断中(打开)的渠道(新建切片,避免复用调用方底层数组造成污染)。
+	// 用只读 IsOpen 而非 Allow:Allow 在 Redis 实现里有副作用(半开 SetNX 抢占探测名额),
+	// 遍历 N 个候选会占满所有探测名额,多副本下冷却结束后恢复极慢。探测名额只在真正
+	// 决定调用某渠道前(下方 Chat/Embeddings/ChatStream)由调用链消费。
 	if s.Breaker != nil {
 		filtered := make([]*model.Channel, 0, len(chs))
 		for _, c := range chs {
-			if s.Breaker.Allow(ctx, c.ID) {
+			if !s.Breaker.IsOpen(ctx, c.ID) {
 				filtered = append(filtered, c)
 			}
 		}
@@ -409,7 +418,14 @@ func (s *Service) Embeddings(ctx context.Context, sub auth.Subject, modelName st
 		return nil, nil, err
 	}
 	start := time.Now()
-	if err := s.preflight(ctx, sub, p, &canon.Request{Model: modelName}, start); err != nil {
+	// 构造估算用 request:把全部 input 文本拼成一条消息,供 preflight 估出真实输入 token,
+	// 否则空 Messages → estimatePromptTokens 返回 1,余额/配额预检被绕过(可传海量 input 白嫖)。
+	var estSB strings.Builder
+	for _, t := range input {
+		estSB.WriteString(t)
+	}
+	estReq := &canon.Request{Model: modelName, Messages: []canon.Message{{Role: "user", Content: estSB.String()}}}
+	if err := s.preflight(ctx, sub, p, estReq, start); err != nil {
 		return nil, nil, err
 	}
 	reqID := resolveReqID(ctx)
@@ -463,6 +479,11 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 		return nil, nil, err
 	}
 	reqID := resolveReqID(ctx)
+	// 流式强制要求上游返回 usage 帧(OpenAI 兼容上游默认不带,会导致 0 token 计费)。
+	// 客户端未显式开启时由网关补齐;客户端已设则尊重其选择。
+	if req.StreamOptions == nil {
+		req.StreamOptions = &canon.StreamOptions{IncludeUsage: true}
+	}
 	reqJSON, _ := json.Marshal(req) // 请求原文(供请求日志)
 	metrics.Inflight.Inc()
 	// 尝试建立流,失败则转移到下一渠道。
@@ -510,8 +531,12 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 	out := make(chan *canon.StreamChunk, 16)
 	var respText strings.Builder // 累积流式 delta 文本,finalize 时 marshal 为响应体落请求日志
 	meta := &Meta{RequestID: reqID, Provider: picked.provider, ChannelID: picked.ch.ID}
+	// finalStatus 由各结束分支设置,finalize 落 usage_records 时使用。默认 ok;
+	// 上游中途出错记 partial(否则失败的流被统计为成功,污染 SLA 与计费对账)。
+	finalStatus := "ok"
+	finalErrMsg := ""
 
-	// finalize 无论流如何结束(正常完成 / 客户端断连 / 上游出错),都基于已观测到的
+	// finalize 无论流如何结束(正常完成 / 客户端断连 / 上游出错 / goroutine panic),都基于已观测到的
 	// usage 完成扣费与记账。用独立带超时的 context,避免请求 ctx 取消后计费丢失
 	// (流式已生成 token,上游已计费,本地必须扣款,否则被薅羊毛)。
 	finalize := func(pending canon.Usage) {
@@ -528,36 +553,40 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 		// recordUsage/recordTPM 用独立脱离请求的 ctx 落库(防客户端早断取消)。
 		dbctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.recordUsage(dbctx, sub, reqID, req.Model, picked, start, pending, meta.PriceCents, meta.CostCents, "ok", "", reqJSON, respJSON)
+		s.recordUsage(dbctx, sub, reqID, req.Model, picked, start, pending, meta.PriceCents, meta.CostCents, finalStatus, finalErrMsg, reqJSON, respJSON)
 		// 流式: 中间件在 g.Next() 时还拿不到 token,这里补登 TPM 桶,使流式也纳入限流统计。
 		s.recordTPM(dbctx, sub, pending)
 	}
 
-	go func() {
+	go func() { //nolint:gosec // G118: finalize 必须用 context.Background 脱离请求 ctx,否则客户端早断会取消计费落库(已生成 token 须扣款)。
 		defer close(out)
-		defer func() { _ = recover() }() // 流式转发 goroutine 不应拖垮进程
-		var lastUsage *canon.Usage
+		// panic 兜底:chunk 处理逻辑(类型断言/反序列化/字符串拼接)若 panic,外层 recover 只吞错,
+		// finalize 永不触发 → 计费与 Inflight 双漏。defer finish() 保证任何退出路径(含 panic)都扣费。
 		var finishOnce sync.Once
+		var lastUsage *canon.Usage
 		finish := func() {
-			// sync.Once 防止任何分支组合下 finalize(含扣费)被调用两次导致重复扣费。
 			finishOnce.Do(func() { finalize(resolveStreamUsage(lastUsage)) })
 		}
+		defer finish()
+		defer func() { _ = recover() }() // 流式转发 goroutine 不应拖垮进程
 		for {
 			select {
 			case chunk, ok := <-src:
 				if !ok {
-					finish() // 上游流结束
-					return
+					return // 上游流结束 → defer finish() 兜底
 				}
 				if chunk.StreamError != "" {
 					// 上游流中途出错(网络断流/读超时/行超长):触发熔断,避免 200 OK 后截断的
 					// 病态渠道持续漏流量;仍按已观测到的 usage 计费(已生成 token 不可回收)。
 					if s.Breaker != nil {
-						s.Breaker.OnFailure(ctx, picked.ch.ID)
+						dbctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+						s.Breaker.OnFailure(dbctx, picked.ch.ID) // 用独立 ctx,客户端已断时请求 ctx 已 cancel
+						cancel()
 					}
 					logging.L().Warn("upstream stream error mid-flight",
 						"request_id", reqID, "channel_id", picked.ch.ID, "err", chunk.StreamError)
-					finish()
+					finalStatus = "partial"
+					finalErrMsg = chunk.StreamError
 					return
 				}
 				if chunk.Usage != nil {
@@ -571,11 +600,9 @@ func (s *Service) ChatStream(ctx context.Context, sub auth.Subject, req *canon.R
 				select {
 				case out <- chunk:
 				case <-ctx.Done(): // 客户端断连: 停止转发,但仍按已生成 token 计费。
-					finish()
 					return
 				}
 			case <-ctx.Done(): // 客户端断连
-				finish()
 				return
 			}
 		}
@@ -783,10 +810,10 @@ func (s *Service) recordTPM(ctx context.Context, sub auth.Subject, usage canon.U
 
 func newReqID() string { return "req-" + uuid.NewString() }
 
-// resolveReqID 优先用 RequestID 中间件注入的 id(使请求日志/usage/billing/日志共享同一链路 ID),
+// resolveReqID 优先用 requestid 中间件注入的 id(使请求日志/usage/billing/日志共享同一链路 ID),
 // 否则回退到自生成。中间件未挂载(如单元测试)时也能工作。
 func resolveReqID(ctx context.Context) string {
-	if id := middleware.FromContext(ctx); id != "" {
+	if id := requestid.FromContext(ctx); id != "" {
 		return id
 	}
 	return newReqID()
@@ -806,11 +833,12 @@ func errCompact(err error) string {
 
 // ChannelOpen 查询某渠道当前熔断状态(供管理端健康展示;不触发上游探测)。
 // 返回 true=放行中(关闭/半开),false=熔断打开中。
+// 用只读 IsOpen:Allow 会消费半开探测名额,管理端轮询健康会反复占用探测窗口。
 func (s *Service) ChannelOpen(ctx context.Context, id string) bool {
 	if s.Breaker == nil {
 		return true
 	}
-	return s.Breaker.Allow(ctx, id)
+	return !s.Breaker.IsOpen(ctx, id)
 }
 
 // isTransient 判断是否为可重试的瞬时错误(超时/连接重置/EOF)。

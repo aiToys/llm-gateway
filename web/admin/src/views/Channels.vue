@@ -5,9 +5,11 @@
     <n-modal v-model:show="show" preset="card" :title="editing ? '编辑渠道: ' + form.name : '新建渠道'" style="max-width:680px">
       <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
         <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi path="provider" label="供应商"><n-select v-model:value="form.provider" :options="providerOpts" /></n-form-item-gi>
+          <n-form-item-gi label="供应商"><n-select :value="presetKey" :options="presetOpts" placeholder="选择供应商" @update:value="onPreset" /></n-form-item-gi>
           <n-form-item-gi path="name" label="名称"><n-input v-model:value="form.name" /></n-form-item-gi>
-          <n-form-item-gi label="Base URL"><n-input v-model:value="form.base_url" placeholder="留空用默认" /></n-form-item-gi>
+          <n-form-item-gi path="base_url" label="Base URL">
+            <n-input v-model:value="form.base_url" :placeholder="form.provider === 'openaicomp' ? 'OpenAI 兼容端点(必填)' : 'mock 无需 base_url'" :disabled="form.provider === 'mock'" />
+          </n-form-item-gi>
           <n-form-item-gi label="优先级(高=主)"><n-input-number v-model:value="form.priority" /></n-form-item-gi>
           <n-form-item-gi label="权重"><n-input-number v-model:value="form.weight" :min="1" /></n-form-item-gi>
           <n-form-item-gi label="租户ID(选填,BYOK)"><n-input v-model:value="form.tenant_id" placeholder="留空=平台默认" :disabled="editing" /></n-form-item-gi>
@@ -51,10 +53,10 @@
   </div>
 </template>
 <script setup>
-import { ref, h, computed, onMounted } from 'vue'
+import { ref, h, computed, onMounted, watch } from 'vue'
 import { NDataTable, NButton, NModal, NForm, NFormItem, NFormItemGi, NGrid, NInputNumber, NInput, NSelect, NSwitch, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import { api } from '../api.js'
-import { statusLabel, statusType, provLabel, yuanPerM, apiErr, PAGINATION, PROVIDERS } from '../format.js'
+import { statusLabel, statusType, presetLabel, yuanPerM, apiErr, PAGINATION, PROVIDER_PRESETS } from '../format.js'
 
 const message = useMessage()
 const rows = ref([]); const loading = ref(false); const show = ref(false); const busy = ref(false)
@@ -67,28 +69,35 @@ async function loadModelOpts() {
   try { const { data } = await api.models(); modelOpts.value = (data.data || []).map(m => ({ label: m.model_name, value: m.model_name })) }
   catch { /* 空选项,手动输入 */ }
 }
-const providerOpts = ref(PROVIDERS)
-async function loadProviders() {
-  try {
-    const { data } = await api.providers()
-    const names = data.data || []
-    if (names.length) providerOpts.value = names.map((v) => ({ label: provLabel(v), value: v }))
-  } catch { /* 退回静态 */ }
-}
+// 供应商预设: 下拉展示用户熟悉的名字(百炼/DeepSeek/...),选中由 onPreset 填 adapter+base_url+默认名。
+// presetKey 仅驱动展示,不参与提交;真正提交的是 form.provider(adapter)+base_url。
+const presetOpts = PROVIDER_PRESETS.map(p => ({ label: p.label, value: p.label }))
+const presetKey = ref(null)
 const formRef = ref(null)
 const editing = ref(false)
 const editId = ref(null)
 const hasKey = ref(false)
-const blank = () => ({ provider: 'mock', name: '', base_url: '', api_key: '', priority: 0, weight: 1, tenant_id: '', input_cost_cents_per_m: 0, output_cost_cents_per_m: 0 })
+const blank = () => ({ provider: 'openaicomp', name: '', base_url: '', api_key: '', priority: 0, weight: 1, tenant_id: '', input_cost_cents_per_m: 0, output_cost_cents_per_m: 0 })
 const form = ref(blank())
 const rules = computed(() => ({
-  provider: { required: true, message: '请选择供应商', trigger: 'change' },
   name: { required: true, message: '请输入名称', trigger: 'blur' },
+  // openaicomp 无 defaultBaseURL,base_url 必填;mock 无需。
+  base_url: form.value.provider === 'openaicomp'
+    ? { required: true, message: 'OpenAI 兼容供应商必须填 base_url', trigger: 'blur' }
+    : {},
   api_key: editing.value ? {} : { required: true, message: '请输入上游 API Key', trigger: 'blur' },
 }))
-const cols = [
+// 选供应商预设: 填 adapter + base_url + 默认名(名仅在空时填,不覆盖已改)。
+function onPreset(label) {
+  presetKey.value = label
+  const p = PROVIDER_PRESETS.find(x => x.label === label)
+  if (!p) return
+  form.value.provider = p.adapter
+  if (p.base_url) form.value.base_url = p.base_url
+  if (!form.value.name) form.value.name = p.name
+}const cols = [
   { title: '名称', key: 'name' },
-  { title: '供应商', key: 'provider', render: r => h(NTag, { size: 'small', type: r.provider === 'mock' ? 'default' : 'info' }, () => provLabel(r.provider)) },
+  { title: '供应商', key: 'provider', render: r => h(NTag, { size: 'small', type: r.provider === 'mock' ? 'default' : 'info' }, () => presetLabel(r.provider, r.base_url)) },
   { title: '租户', key: 'tenant_id', render: r => r.tenant_id ? r.tenant_id : h(NTag, { size: 'small', type: 'default', bordered: false }, () => '平台默认·只读') },
   { title: '模型', key: 'models', render: r => {
     const cms = r.channel_models || []
@@ -112,15 +121,16 @@ const cols = [
       }),
       h(NPopconfirm, { onPositiveClick: () => del(r) }, {
         trigger: () => h(NButton, { size: 'tiny', tertiary: true, type: 'error' }, () => '删除'),
-        default: () => `将删除渠道「${r.name}」(${provLabel(r.provider)}),引用此渠道的模型将失效,不可恢复。确认?`
+        default: () => `将删除渠道「${r.name}」(${presetLabel(r.provider, r.base_url)}),引用此渠道的模型将失效,不可恢复。确认?`
       })
     ])
   } },
 ]
-function openCreate() { editing.value = false; editId.value = null; form.value = blank(); modelRows.value = []; show.value = true }
+function openCreate() { editing.value = false; editId.value = null; form.value = blank(); presetKey.value = null; modelRows.value = []; show.value = true }
 function openEdit(r) {
   editing.value = true; editId.value = r.id
   hasKey.value = !!r.has_key
+  presetKey.value = presetLabel(r.provider, r.base_url)
   form.value = { provider: r.provider, name: r.name, base_url: r.base_url || '', api_key: '',
     priority: r.priority, weight: r.weight, tenant_id: r.tenant_id || '',
     input_cost_cents_per_m: r.input_cost_cents_per_m || 0, output_cost_cents_per_m: r.output_cost_cents_per_m || 0 }
@@ -180,6 +190,7 @@ function parsePayload() {
 }
 async function submit() {
   try { await formRef.value?.validate() } catch { return }
+  if (!presetKey.value) { message.warning('请选择供应商'); return }
   if (!modelRows.value.some(r => (r.model || '').trim())) {
     message.warning('请至少添加一个模型'); return
   }
@@ -196,7 +207,7 @@ async function submit() {
     show.value = false; load()
   } catch (e) { message.error(apiErr(e, editing.value ? '保存失败' : '创建失败')) } finally { busy.value = false }
 }
-onMounted(() => { loadProviders(); loadModelOpts(); load() })
+onMounted(() => { loadModelOpts(); load() })
 </script>
 <style scoped>
 .bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px } .bar h3 { margin:0 }

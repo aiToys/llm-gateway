@@ -197,7 +197,7 @@ web/user/  web/admin/    Vue 3 + Naive UI 前端
 - [x] 工程基线:golangci-lint v2 接入 CI、JSON snake_case 统一、错误响应统一、资金核心集成测试
 - [ ] 分布式部署:异步计费队列、接入点横向扩容(架构已预留扩展点)
 - [ ] OTel 分布式链路追踪
-- [x] 渠道模型独立实体化(`channel_models`,每个渠道×模型独立配成本/映射/启停/权重,数据迁移已保 26→26)— [设计文档](docs/superpowers/specs/2026-07-18-channel-models-entity-design.md)
+- [x] 渠道模型独立实体化(`channel_models`,每个渠道×模型独立配成本/映射/启停/权重,数据迁移已保 26→26)— [设计文档](docs/design/channel-models-entity.md)
 - [ ] Prompt 模板库、对话历史持久化
 - [ ] S3/MinIO 文件后端
 

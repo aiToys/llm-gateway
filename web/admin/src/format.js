@@ -68,17 +68,30 @@ export function actionMeta(action) {
   return 'default'
 }
 
-// 供应商选项(Channels/Models 复用)。
-export const PROVIDERS = [
-  { label: 'Mock(开发)', value: 'mock' },
-  { label: '阿里云百炼', value: 'bailian' },
-  { label: '火山方舟', value: 'volcark' },
-  { label: '百度千帆', value: 'qianfan' },
-  { label: 'DeepSeek', value: 'deepseek' },
-  { label: '智谱 GLM', value: 'zhipuai' },
+// 供应商预设: 下拉展示用户熟悉的名字,选中自动填 adapter(内部协议)+base_url+默认名称。
+// adapter(openaicomp/mock)是实现细节,不暴露给用户。与 cmd/gateway/seed.go 同源,改动需同步。
+// 未来加 anthropic/gemini 出口 adapter 后,在此追加对应预设即可,前端结构不变。
+export const PROVIDER_PRESETS = [
+  { label: '阿里云百炼', adapter: 'openaicomp', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', name: '百炼 · 通义千问' },
+  { label: '火山方舟', adapter: 'openaicomp', base_url: 'https://ark.cn-beijing.volces.com/api/v3', name: '火山方舟 · 豆包' },
+  { label: '百度千帆', adapter: 'openaicomp', base_url: 'https://qianfan.baidubce.com/v2', name: '千帆 · 文心' },
+  { label: 'DeepSeek', adapter: 'openaicomp', base_url: 'https://api.deepseek.com', name: 'DeepSeek' },
+  { label: '智谱 GLM', adapter: 'openaicomp', base_url: 'https://open.bigmodel.cn/api/paas/v4', name: '智谱 · GLM' },
+  { label: 'Anthropic (Claude)', adapter: 'anthropic', base_url: 'https://api.anthropic.com', name: 'Anthropic · Claude' },
+  { label: 'OpenAI 兼容(自定义)', adapter: 'openaicomp', base_url: '', name: '' },
+  { label: 'Mock(开发/测试)', adapter: 'mock', base_url: '', name: 'Mock' },
 ]
+// 据 adapter + base_url 反查预设名(列表展示 / 编辑回显)。匹配不上→自定义或 Mock。
+export function presetLabel(adapter, baseURL) {
+  const hit = PROVIDER_PRESETS.find(p => p.adapter === adapter && p.base_url && p.base_url === (baseURL || ''))
+  if (hit) return hit.label
+  if (adapter === 'mock') return 'Mock'
+  if (adapter === 'openaicomp') return 'OpenAI 兼容'
+  return adapter || '—'
+}
+// 退化显示(无 base_url 可推断时)。
 export function provLabel(p) {
-  return { mock: 'Mock', bailian: '百练', volcark: '方舟', qianfan: '千帆', deepseek: 'DeepSeek', zhipuai: '智谱' }[p] || p
+  return { openaicomp: 'OpenAI 兼容', mock: 'Mock' }[p] || p || '—'
 }
 // 统一分页配置。
 export const PAGINATION = { pageSize: 20, showSizePicker: true, pageSizes: [20, 50, 100] }

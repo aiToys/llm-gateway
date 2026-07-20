@@ -1,5 +1,5 @@
 // Package openaicomp 实现对"OpenAI 兼容"上游的通用适配器。
-// 阿里云百练(DashScope compatible-mode)、火山方舟(Ark v3)、百度千帆(v2)
+// 阿里云百炼(DashScope compatible-mode)、火山方舟(Ark v3)、百度千帆(v2)
 // 均提供 OpenAI 兼容的 /chat/completions 接口,因此共用此适配器,
 // 仅 defaultBaseURL 不同,真正实现"一次编写、多家复用"。
 package openaicomp
@@ -23,15 +23,27 @@ import (
 type Adapter struct {
 	name           string
 	defaultBaseURL string
-	client         *http.Client
+	client         *http.Client // 非流式:整体超时 5min
+	streamClient   *http.Client // 流式:无整体超时(避免长对话/reasoning 流被硬截断),仅响应头超时
 }
 
 // New 构造一个 OpenAI 兼容适配器。
 func New(name, defaultBaseURL string) *Adapter {
+	// DisableKeepAlives: 部分供应商(如 airouter)会主动关闭空闲 keep-alive 连接,
+	// 客户端复用已关闭的连接会得到 EOF。禁用连接复用,每请求新建连接,
+	// 配合 relay 的 EOF 瞬时重试,彻底避免"keep-alive 连接被对端关闭"类 EOF。
+	transport := func() *http.Transport {
+		return &http.Transport{
+			DisableKeepAlives: true,
+			// 流式仅约束响应头到达时间,不约束 body 读取阶段(长流式合法)。
+			ResponseHeaderTimeout: 30 * time.Second,
+		}
+	}
 	return &Adapter{
 		name:           name,
 		defaultBaseURL: defaultBaseURL,
-		client:         &http.Client{Timeout: 5 * time.Minute},
+		client:         &http.Client{Timeout: 5 * time.Minute, Transport: transport()},
+		streamClient:   &http.Client{Transport: transport()}, // 无整体 Timeout;由请求 ctx 控制生命周期
 	}
 }
 
@@ -59,10 +71,26 @@ func parseCacheTokens(raw []byte, u canon.Usage) canon.Usage {
 		} `json:"usage"`
 	}
 	if json.Unmarshal(raw, &d) == nil {
-		u.CacheReadTokens = d.Usage.PromptTokensDetails.CachedTokens + d.Usage.PromptCacheHitTokens + d.Usage.CacheReadInputTokens
+		// 缓存读取 token:OpenAI/DeepSeek/Anthropic 三种字段名表征同一概念,
+		// 正常每家只返回其一;但部分代理层会合并多源,直接相加会重复计数。
+		// 取首个非零值,避免双计。
+		u.CacheReadTokens = firstNonZero(
+			d.Usage.PromptTokensDetails.CachedTokens,
+			d.Usage.PromptCacheHitTokens,
+			d.Usage.CacheReadInputTokens,
+		)
 		u.CacheWriteTokens = d.Usage.CacheCreationInputTokens
 	}
 	return u
+}
+
+func firstNonZero(xs ...int) int {
+	for _, x := range xs {
+		if x != 0 {
+			return x
+		}
+	}
+	return 0
 }
 
 // Chat 非流式。
@@ -82,11 +110,11 @@ func (a *Adapter) Chat(ctx context.Context, ch *provider.Channel, req *canon.Req
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("%s upstream %d: %s", a.name, resp.StatusCode, snippet(raw))
+		return nil, &canon.UpstreamError{Provider: a.name, StatusCode: resp.StatusCode, Body: raw, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After")}
 	}
 	var out canon.Response
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("decode %s response: %w (body: %s)", a.name, err, snippet(raw))
+		return nil, fmt.Errorf("decode %s response: %w (body: %s)", a.name, err, canon.Snippet(raw))
 	}
 	out.Usage = parseCacheTokens(raw, out.Usage)
 	return &out, nil
@@ -103,14 +131,14 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+ch.APIKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
-	resp, err := a.client.Do(httpReq)
+	resp, err := a.streamClient.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close() //nolint:errcheck // 错误响应体读取后立即关闭,关闭错误无意义
-		return nil, fmt.Errorf("%s upstream %d: %s", a.name, resp.StatusCode, snippet(raw))
+		return nil, &canon.UpstreamError{Provider: a.name, StatusCode: resp.StatusCode, Body: raw, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After")}
 	}
 	out := make(chan *canon.StreamChunk, 16)
 	go func() {
@@ -168,7 +196,7 @@ func (a *Adapter) Embeddings(ctx context.Context, ch *provider.Channel, input []
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, nil, fmt.Errorf("%s embeddings %d: %s", a.name, resp.StatusCode, snippet(raw))
+		return nil, nil, &canon.UpstreamError{Provider: a.name, StatusCode: resp.StatusCode, Body: raw, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After")}
 	}
 	var res struct {
 		Data []struct {
@@ -184,12 +212,4 @@ func (a *Adapter) Embeddings(ctx context.Context, ch *provider.Channel, input []
 		out = append(out, d.Embedding)
 	}
 	return out, res.Usage, nil
-}
-
-func snippet(b []byte) string {
-	s := string(b)
-	if len(s) > 500 {
-		return s[:500]
-	}
-	return s
 }

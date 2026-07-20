@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/aitoys/llm-gateway/internal/model"
 	"github.com/aitoys/llm-gateway/internal/store"
@@ -51,7 +52,9 @@ func (s *Server) listModels(g *gin.Context) {
 func attachProviders(ms []*model.ModelDef, chs []*model.Channel) {
 	idx := map[string]map[string]struct{}{}
 	for _, c := range chs {
-		if c.Status != "active" {
+		// mock 是开发兜底渠道,不计入面向用户的供应商标签(避免卡片出现"Mock(开发)"显得不专业)。
+		// 仅挂 mock 的模型会得到空 providers,前端不渲染标签。
+		if c.Status != "active" || c.Provider == "mock" {
 			continue
 		}
 		for _, cm := range c.ChannelModels {
@@ -61,7 +64,8 @@ func attachProviders(ms []*model.ModelDef, chs []*model.Channel) {
 			if idx[cm.ModelName] == nil {
 				idx[cm.ModelName] = map[string]struct{}{}
 			}
-			idx[cm.ModelName][c.Provider] = struct{}{}
+			// 用友好供应商标识(按 baseURL 推断),不暴露 adapter 协议类型(openaicomp)给用户。
+			idx[cm.ModelName][providerDisplayKey(c.Provider, c.BaseURL)] = struct{}{}
 		}
 	}
 	for _, m := range ms {
@@ -75,6 +79,33 @@ func attachProviders(ms []*model.ModelDef, chs []*model.Channel) {
 		}
 		m.Providers = out
 	}
+}
+
+// providerDisplayKey 把渠道的(adapter 类型, base_url)映射为对用户友好的供应商标识 key。
+// adapter 类型(openaicomp/mock)是内部协议,不直接暴露给用户——按 baseURL 推断具体供应商。
+// baseURL→key 与前端 web/user/src/constants.js、web/admin/src/format.js 同源,改动需同步。
+func providerDisplayKey(provider, baseURL string) string {
+	if provider == "mock" {
+		return "mock"
+	}
+	switch strings.TrimRight(baseURL, "/") {
+	case "https://dashscope.aliyuncs.com/compatible-mode/v1":
+		return "bailian"
+	case "https://ark.cn-beijing.volces.com/api/v3":
+		return "volcark"
+	case "https://qianfan.baidubce.com/v2":
+		return "qianfan"
+	case "https://api.deepseek.com":
+		return "deepseek"
+	case "https://open.bigmodel.cn/api/paas/v4":
+		return "zhipuai"
+	case "https://airouter.ddmc-inc.com/api/v1":
+		return "airouter"
+	}
+	if provider == "openaicomp" {
+		return "openaicomp" // 未知 OpenAI 兼容上游;前端映射为"OpenAI 兼容"
+	}
+	return provider
 }
 
 // publicProviders 返回已注册的供应商标识列表(单一数据源,供前端渲染渠道/广场下拉,

@@ -21,10 +21,12 @@ import (
 	"github.com/aitoys/llm-gateway/internal/middleware"
 	"github.com/aitoys/llm-gateway/internal/payment"
 	"github.com/aitoys/llm-gateway/internal/provider"
+	anthropicprov "github.com/aitoys/llm-gateway/internal/provider/anthropic"
 	"github.com/aitoys/llm-gateway/internal/provider/mock"
 	"github.com/aitoys/llm-gateway/internal/provider/openaicomp"
 	"github.com/aitoys/llm-gateway/internal/relay"
 	"github.com/aitoys/llm-gateway/internal/store"
+	"github.com/aitoys/llm-gateway/internal/version"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -66,14 +68,14 @@ func Build(cfg *config.Config) (*Deps, error) {
 		log.Printf("[WARN] redis 不可达(%v):限流/熔断/缓存将降级,请检查配置", err)
 	}
 
+	// registry 只注册 adapter 协议类型(少变),不注册具体供应商名(多变)。
+	// 渠道(channels.provider)存 adapter 类型;具体供应商的 base_url 由渠道自带,
+	// 用户在管理端自助加任意 OpenAI 兼容供应商,无需改代码/重启。
+	// 预置常见供应商的 base_url 见前端 PROVIDER_TEMPLATES(seed 同源)。
 	registry := provider.NewRegistry()
 	registry.Register(mock.New())
-	registry.Register(openaicomp.New("bailian", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
-	registry.Register(openaicomp.New("volcark", "https://ark.cn-beijing.volces.com/api/v3"))
-	registry.Register(openaicomp.New("qianfan", "https://qianfan.baidubce.com/v2"))
-	// DeepSeek、智谱 GLM 为独立 openai 兼容供应商,直连其官方 API。
-	registry.Register(openaicomp.New("deepseek", "https://api.deepseek.com"))
-	registry.Register(openaicomp.New("zhipuai", "https://open.bigmodel.cn/api/paas/v4"))
+	registry.Register(openaicomp.New("openaicomp", ""))                            // 通用 OpenAI 兼容;defaultBaseURL 空 → 强制用渠道 base_url
+	registry.Register(anthropicprov.New("anthropic", "https://api.anthropic.com")) // Anthropic 原生(Claude 官方)
 
 	cipher, err := crypto.NewCipher(cfg.Auth.ChannelKeyMaster)
 	if err != nil {
@@ -85,10 +87,11 @@ func Build(cfg *config.Config) (*Deps, error) {
 	relaySvc := &relay.Service{
 		Store: st, Providers: registry, Billing: billingSvc,
 		Cipher: cipher, DefaultProvider: cfg.Defaults.DefaultProvider,
-		Breaker:         relay.NewRedisBreaker(rdb, 3, 60*time.Second),
-		RDB:             rdb,
-		MinBalanceCents: cfg.Billing.MinBalanceCents,
-		CharsPerToken:   cfg.Billing.CharsPerToken,
+		Breaker:                   relay.NewRedisBreaker(rdb, 3, 60*time.Second),
+		RDB:                       rdb,
+		MinBalanceCents:           cfg.Billing.MinBalanceCents,
+		CharsPerToken:             cfg.Billing.CharsPerToken,
+		PassthroughUpstreamErrors: cfg.Billing.PassthroughUpstreamErrors,
 		ReqLog: relay.ReqLogCfg{
 			Enabled: cfg.ReqLog.Enabled, SampleRate: cfg.ReqLog.SampleRate,
 			MaxBodyBytes: cfg.ReqLog.MaxBodyBytes, LogBodies: cfg.ReqLog.LogBodies,
@@ -227,7 +230,7 @@ func (d *Deps) EdgeEngine() *gin.Engine {
 	r.Use(middleware.RequestID()) // 最外层注入 request_id,使日志/usage/billing 共享同一链路 ID
 	r.Use(logging.Middleware())
 	r.Use(cors.New(edgeCORS(d.Cfg)))
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true, "version": version.Version}) })
 	r.GET("/readyz", gin.WrapF(d.ReadyHandler()))
 	r.GET("/metrics", gin.WrapH(metrics.Handler()))
 
@@ -238,12 +241,16 @@ func (d *Deps) EdgeEngine() *gin.Engine {
 	// 鉴权 + 限流先挂,确保其后的所有写入/推理路由(/v1/files 上传、/v1/* 推理)都受保护。
 	// gin 按注册顺序应用 Use,故 Use 必须在路由注册之前。
 	g.Use(middleware.APIKeyAuth(d.Store, d.RDB))
-	g.Use(middleware.RateLimit(d.RDB))
+	g.Use(middleware.RateLimit(d.RDB, middleware.PlaygroundLimits{
+		RPMLimit: d.Cfg.Web.Playground.RPMLimit,
+		TPMLimit: d.Cfg.Web.Playground.TPMLimit,
+	}))
 	g.POST("/v1/files", d.uploadHandler())
 	g.POST("/v1/chat/completions", oai.ChatCompletions)
 	g.GET("/v1/models", oai.Models)
 	g.POST("/v1/embeddings", oai.Embeddings)
 	g.POST("/v1/messages", ant.Messages)
+	g.POST("/v1/messages/count_tokens", ant.CountTokens)
 	// 文件下载保持公开: 上传返回的 URL 由前端 <img src> 直接引用(浏览器无法带 Authorization)。
 	// 安全性靠"文件 ID 为高熵随机串"(事实上的 capability token)。如需更强控制可改签名 URL。
 	g.GET("/files/*path", gin.WrapF(d.Files.ServeHTTP()))

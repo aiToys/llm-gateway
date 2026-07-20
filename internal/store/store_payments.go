@@ -51,10 +51,13 @@ func (s *Store) SettlePaymentAtomic(ctx context.Context, outTradeNo, txnID strin
 
 	var id, tenantID, userID string
 	var amount int64
-	// 临界区: 仅 pending→paid 的那次拿到行。已 paid 则 RowsAffected=0。
+	// 临界区: pending→paid 或 closed→paid 的那次拿到行。已 paid 则 RowsAffected=0。
+	// 允许 closed→paid: CloseExpired 在"渠道查单 paid=false"与"MarkClosed"之间存在窗口,
+	// 用户在此窗口内付款但异步回调尚未到达时,订单会被关单;随后到达的回调带可信付款证据
+	// (验签通过/查单 paid),应允许补入账,否则用户付款却永久无法到账。
 	if err = tx.QueryRow(ctx,
 		`UPDATE payment_orders SET status='paid', transaction_id=$2, paid_at=$3
-		 WHERE out_trade_no=$1 AND status='pending'
+		 WHERE out_trade_no=$1 AND status IN ('pending','closed')
 		 RETURNING id, tenant_id, user_id, amount_cents`, outTradeNo, txnID, paidAt).
 		Scan(&id, &tenantID, &userID, &amount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

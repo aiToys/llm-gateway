@@ -39,7 +39,7 @@
             <span>供应商</span><span>渠道</span><span>角色</span><span>优先级</span><span>权重</span><span></span>
           </div>
           <div class="ch-row" v-for="c in mountedChannels" :key="c.id">
-            <span><n-tag size="tiny" :type="c.provider==='mock'?'default':'info'">{{ provLabel(c.provider) }}</n-tag></span>
+            <span><n-tag size="tiny" :type="c.provider==='mock'?'default':'info'">{{ presetLabel(c.provider, c.base_url) }}</n-tag></span>
             <span class="cname">{{ c.name }}</span>
             <span><n-tag size="tiny" :type="roleOf(c).type">{{ roleOf(c).label }}</n-tag></span>
             <span><n-input-number v-model:value="c.priority" size="tiny" style="width:90px" :show-button="false" @update:value="v => saveRouting(c, { priority: v })" /></span>
@@ -78,7 +78,7 @@
 import { ref, h, computed, onMounted } from 'vue'
 import { NDataTable, NButton, NModal, NForm, NFormItem, NFormItemGi, NGrid, NInput, NInputNumber, NSelect, NSwitch, NPopconfirm, NTag, NAlert, NEmpty, useMessage } from 'naive-ui'
 import { api } from '../api.js'
-import { yuanPerM, fmtCtx, provLabel, apiErr, PAGINATION, PROVIDERS } from '../format.js'
+import { yuanPerM, fmtCtx, presetLabel, apiErr, PAGINATION } from '../format.js'
 
 const message = useMessage()
 const rows = ref([]); const loading = ref(false); const show = ref(false); const busy = ref(false)
@@ -116,8 +116,8 @@ const cModelNames = c => (c.channel_models || []).map(cm => cm.model_name)
 // 本模型挂载的渠道(供应商来源 / 负载均衡对象)。
 const mountedChannels = computed(() => channels.value.filter(c => cModelNames(c).includes(form.value.model_name)))
 const availableChannels = computed(() => channels.value.filter(c => c.status === 'active' && !cModelNames(c).includes(form.value.model_name)))
-const availableOptions = computed(() => availableChannels.value.map(c => ({ label: `${c.name} (${provLabel(c.provider)})`, value: c.id })))
-const pinnedOptions = computed(() => mountedChannels.value.map(c => ({ label: `${c.name} (${provLabel(c.provider)})`, value: c.id })))
+const availableOptions = computed(() => availableChannels.value.map(c => ({ label: `${c.name} (${presetLabel(c.provider, c.base_url)})`, value: c.id })))
+const pinnedOptions = computed(() => mountedChannels.value.map(c => ({ label: `${c.name} (${presetLabel(c.provider, c.base_url)})`, value: c.id })))
 
 // 角色:取挂载渠道中最高优先级=主,其余=备;最高组多于一个=同级(参与均衡)。
 const maxPriority = computed(() => mountedChannels.value.reduce((m, c) => Math.max(m, c.priority || 0), -Infinity))
@@ -140,7 +140,7 @@ const cols = [
   { title: '供应商(挂载渠道)', key: 'ch', render: r => {
     const cs = (channels.value || []).filter(c => cModelNames(c).includes(r.model_name))
     if (!cs.length) return h('span', { style: 'color:#bbb' }, '— 无')
-    return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, cs.map(c => h(NTag, { size: 'tiny', type: c.provider === 'mock' ? 'default' : 'info' }, () => provLabel(c.provider))))
+    return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, cs.map(c => h(NTag, { size: 'tiny', type: c.provider === 'mock' ? 'default' : 'info' }, () => presetLabel(c.provider, c.base_url))))
   } },
   { title: '能力', key: 'capabilities', render: r => {
     const cs = r.capabilities || []

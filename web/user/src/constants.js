@@ -1,13 +1,18 @@
 // 用户端共享常量:供应商/能力映射,供筛选下拉与展示标签复用。
 
 // provider 内部标识 → 中文展示名。
+// adapter 类型(openaicomp)是内部协议,经后端 providerDisplayKey 已尽量转成具体供应商;
+// openaicomp 兜底显示"OpenAI 兼容",避免技术术语泄露给用户。
 export const PROVIDER_LABELS = {
   mock: 'Mock(开发)',
-  bailian: '阿里云百练',
+  bailian: '阿里云百炼',
   volcark: '火山方舟',
   qianfan: '百度千帆',
   deepseek: 'DeepSeek',
   zhipuai: '智谱 GLM',
+  airouter: 'Airouter',
+  anthropic: 'Anthropic',
+  openaicomp: 'OpenAI 兼容',
 }
 // provider → 标签颜色类型(Naive UI NTag type)。
 export const PROVIDER_TAG_TYPES = {
@@ -17,6 +22,9 @@ export const PROVIDER_TAG_TYPES = {
   qianfan: 'info',
   deepseek: 'error',
   zhipuai: 'info',
+  airouter: 'info',
+  anthropic: 'error',
+  openaicomp: 'info',
 }
 export function provLabel(p) {
   return PROVIDER_LABELS[p] || p
@@ -27,7 +35,7 @@ export function provTagType(p) {
 
 // 公开筛选用供应商选项(mock 仅开发环境显示)。
 export const PROVIDER_OPTIONS = [
-  { label: '阿里云百练', value: 'bailian' },
+  { label: '阿里云百炼', value: 'bailian' },
   { label: '火山方舟', value: 'volcark' },
   { label: '百度千帆', value: 'qianfan' },
   { label: 'Mock(开发)', value: 'mock' },

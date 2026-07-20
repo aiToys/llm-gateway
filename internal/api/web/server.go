@@ -24,8 +24,9 @@ type Server struct {
 	RDB         *redis.Client
 	FileSvc     *files.Service
 	Payment     *payment.Service // 支付服务(下单/回调/查单);为 nil 时支付入口不可用
-	Dev         bool              // 开发模式: 放开模拟充值、注册
+	Dev         bool                        // 开发模式: 放开模拟充值、注册
 	AllowSignup bool
+	Playground  middleware.PlaygroundLimits // 聊天台默认每用户限流(JWT 主体,无 API Key)
 }
 
 // Register 注册全部路由(group 相对于 engine)。
@@ -52,7 +53,7 @@ func (s *Server) Register(r *gin.Engine) {
 		api.POST("/invites/accept", s.inviteAccept)
 	}
 	// 需登录
-	jwt := api.Group("", middleware.JWTAuth(s.Auth))
+	jwt := api.Group("", middleware.JWTAuth(s.Auth, s.Store, s.RDB))
 	{
 		jwt.GET("/me", s.me)
 		jwt.GET("/me/models", s.meModelPrefs)
@@ -77,14 +78,19 @@ func (s *Server) Register(r *gin.Engine) {
 		jwt.POST("/team/invites", s.createInvite)
 		jwt.GET("/team/invites", s.listInvites)
 		jwt.DELETE("/team/invites/:id", s.revokeInvite)
-		jwt.POST("/playground/chat", s.playgroundChat)
-		jwt.POST("/playground/chat/stream", s.playgroundChatStream)
-		jwt.POST("/playground/upload", s.playgroundUpload)
+		// 聊天台: JWT 主体(无 API Key),单独挂 RateLimit 用 UserID 维度 + Playground 默认限额,
+		// 否则登录用户可绕过 API Key 限流无限冲击上游。
+		pg := jwt.Group("", middleware.RateLimit(s.RDB, s.Playground))
+		{
+			pg.POST("/playground/chat", s.playgroundChat)
+			pg.POST("/playground/chat/stream", s.playgroundChatStream)
+			pg.POST("/playground/upload", s.playgroundUpload)
+		}
 	}
 	// 管理端 — 按权限二分:
 	//   RequireAdmin        : 平台管理员 + 租户管理员(handler 内按 sub.TenantID 收窄,仅本租户)。
 	//   RequirePlatformAdmin: 仅平台管理员(跨租户全局资源: 租户/全局模型定价/账目/审计/统计)。
-	admin := api.Group("/admin", middleware.JWTAuth(s.Auth), middleware.RequireAdmin())
+	admin := api.Group("/admin", middleware.JWTAuth(s.Auth, s.Store, s.RDB), middleware.RequireAdmin())
 	{
 		// 用户与渠道: 租户管理员仅可见/可改本租户范围(见 handler 内 adminScope/ensureChannelScope)。
 		admin.GET("/users", s.adminListUsers)
@@ -111,7 +117,7 @@ func (s *Server) Register(r *gin.Engine) {
 		admin.GET("/models", s.adminListModels)
 	}
 	// 平台级管理(跨租户): 租户管理、全局模型定价写入、账目、审计、统计、全局用量。
-	platform := api.Group("/admin", middleware.JWTAuth(s.Auth), middleware.RequirePlatformAdmin())
+	platform := api.Group("/admin", middleware.JWTAuth(s.Auth, s.Store, s.RDB), middleware.RequirePlatformAdmin())
 	{
 		platform.GET("/stats", s.adminStats)
 		platform.GET("/tenants", s.adminListTenants)

@@ -84,11 +84,16 @@ func (s *Store) MigrateUp(ctx context.Context) error {
 	return nil
 }
 
-// MigrateDown 回滚最后(全部)迁移。仅用于开发。
+// MigrateDown 回滚初始迁移(整体重置)。仅用于开发。
+// 读取最旧版本(首个迁移)的 .down.sql 执行——历史上有多个迁移时也是"回到空库"语义。
 func (s *Store) MigrateDown(ctx context.Context) error {
-	down, err := migrationFS.ReadFile("migrations/0001_init.down.sql")
+	versions, err := migrationVersions()
+	if err != nil || len(versions) == 0 {
+		return fmt.Errorf("migrate down: no migrations found")
+	}
+	down, err := migrationFS.ReadFile("migrations/" + versions[0] + ".down.sql")
 	if err != nil {
-		return err
+		return fmt.Errorf("migrate down: %w", err)
 	}
 	if _, err := s.Pool.Exec(ctx, string(down)); err != nil {
 		return fmt.Errorf("migrate down: %w", err)

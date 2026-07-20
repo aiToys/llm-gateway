@@ -11,59 +11,85 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RateLimit 按 API Key 的 RPM/TPM 限流。
+// PlaygroundLimits 聊天台(JWT 鉴权、无 API Key)的默认每用户限流。
+// 0 表示该维度不限。由配置 Web.Playground 注入。
+type PlaygroundLimits struct {
+	RPMLimit int
+	TPMLimit int
+}
+
+// RateLimit 按主体身份的 RPM/TPM 限流。
+//   - 身份键:走 API Key 鉴权用 APIKeyID;走 Web JWT(聊天台)用 UserID。两类主体都纳入限流,
+//     避免 JWT 路径(无 API Key)完全绕过限流无限冲击上游。
+//   - 限额来源:API Key 主体用其自身限额(Subject.RPMLimit 等);JWT 主体用 Playground 默认限额。
 //   - Redis 可用: 跨副本共享的滑动分钟桶(INCR/IncrBy + TTL)。
-//   - Redis 不可用(rdb==nil 或故障): 降级到进程内内存桶,保证单实例下限流不致完全失效(fail-closed),
-//     避免一次 Redis 抖动就让全部流量无保护涌入上游。
+//   - Redis 不可用(rdb==nil 或故障): 降级到进程内内存桶(fail-closed)。
 //
 // RPM: 请求前对当前分钟桶自增,超限返回 429。
 // TPM: 请求前用"当前分钟已用"预判;请求后按实际 token(g.Set("rl_tokens"))补登。
-// 限额为 0 表示不限。仅在走 API Key 鉴权(Subject.APIKeyID 非空)时生效。
-func RateLimit(rdb *redis.Client) gin.HandlerFunc {
+// 限额为 0 表示不限。
+func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 	local := newLocalBuckets()
 	return func(g *gin.Context) {
 		sub, ok := auth.FromContext(g.Request.Context())
-		if !ok || sub.APIKeyID == "" {
+		if !ok {
 			g.Next()
 			return
+		}
+		// 身份键:API Key 优先,否则用 UserID(聊天台 JWT)。两者皆空则不限(未鉴权路由)。
+		ident := sub.APIKeyID
+		isPlayground := ident == ""
+		if isPlayground {
+			ident = sub.UserID
+		}
+		if ident == "" {
+			g.Next()
+			return
+		}
+		// 限额:API Key 主体用其配额;聊天台用 Playground 默认。
+		rpmLimit, tpmLimit := sub.RPMLimit, sub.TPMLimit
+		if isPlayground {
+			rpmLimit, tpmLimit = playground.RPMLimit, playground.TPMLimit
 		}
 		ctx := g.Request.Context()
 		now := time.Now()
 		minute := now.Format("200601021504")
-		rpmKey := "rl:rpm:" + sub.APIKeyID + ":" + minute
-		tpmKey := "rl:tpm:" + sub.APIKeyID + ":" + minute
+		rpmKey := "rl:rpm:" + ident + ":" + minute
+		tpmKey := "rl:tpm:" + ident + ":" + minute
 
 		// RPM 预检
-		if sub.RPMLimit > 0 {
-			if inc(rdb, local, ctx, rpmKey, 1) > int64(sub.RPMLimit) {
+		if rpmLimit > 0 {
+			if inc(rdb, local, ctx, rpmKey, 1) > int64(rpmLimit) {
 				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 					"error": gin.H{"type": "rate_limit_exceeded", "message": "RPM limit exceeded"},
 				})
 				return
 			}
 		}
-		// 日/月请求数配额预检(0=不限)。桶跨自然日/月对齐:TTL 略大于一个周期,保证跨周期自动滚动。
-		if sub.DailyRequestLimit > 0 {
-			k := "quota:req:d:" + sub.APIKeyID + ":" + now.Format("20060102")
-			if incTTL(rdb, local, ctx, k, 1, 25*time.Hour) > int64(sub.DailyRequestLimit) {
-				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error": gin.H{"type": "quota_exceeded", "message": "daily request quota exceeded"},
-				})
-				return
+		// 日/月请求数配额预检(0=不限;仅 API Key 主体有此配额,聊天台无)。桶跨自然日/月对齐。
+		if !isPlayground {
+			if sub.DailyRequestLimit > 0 {
+				k := "quota:req:d:" + ident + ":" + now.Format("20060102")
+				if incTTL(rdb, local, ctx, k, 1, 25*time.Hour) > int64(sub.DailyRequestLimit) {
+					g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+						"error": gin.H{"type": "quota_exceeded", "message": "daily request quota exceeded"},
+					})
+					return
+				}
 			}
-		}
-		if sub.MonthlyRequestLimit > 0 {
-			k := "quota:req:m:" + sub.APIKeyID + ":" + now.Format("200601")
-			if incTTL(rdb, local, ctx, k, 1, 32*24*time.Hour) > int64(sub.MonthlyRequestLimit) {
-				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error": gin.H{"type": "quota_exceeded", "message": "monthly request quota exceeded"},
-				})
-				return
+			if sub.MonthlyRequestLimit > 0 {
+				k := "quota:req:m:" + ident + ":" + now.Format("200601")
+				if incTTL(rdb, local, ctx, k, 1, 32*24*time.Hour) > int64(sub.MonthlyRequestLimit) {
+					g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+						"error": gin.H{"type": "quota_exceeded", "message": "monthly request quota exceeded"},
+					})
+					return
+				}
 			}
 		}
 		// TPM 预检(基于已记录的当前分钟用量;输入未知故仅按已用判断,真值在请求后补登)
-		if sub.TPMLimit > 0 {
-			if get(rdb, local, ctx, tpmKey) >= int64(sub.TPMLimit) {
+		if tpmLimit > 0 {
+			if get(rdb, local, ctx, tpmKey) >= int64(tpmLimit) {
 				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 					"error": gin.H{"type": "rate_limit_exceeded", "message": "TPM limit exceeded"},
 				})
@@ -73,7 +99,7 @@ func RateLimit(rdb *redis.Client) gin.HandlerFunc {
 		g.Next()
 
 		// 请求后:把本次 token 计入 TPM 桶(供后续请求预判)。
-		if sub.TPMLimit > 0 {
+		if tpmLimit > 0 {
 			if used := g.GetInt64("rl_tokens"); used > 0 {
 				inc(rdb, local, ctx, tpmKey, used)
 			}

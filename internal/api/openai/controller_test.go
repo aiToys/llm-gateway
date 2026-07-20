@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/aitoys/llm-gateway/internal/canon"
 	"github.com/aitoys/llm-gateway/internal/relay"
 	"github.com/gin-gonic/gin"
 )
@@ -46,4 +48,62 @@ func TestWriteRelayErrMapping(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWriteRelayErrPassthrough 验证 *canon.UpstreamError 在开关开启时原样透传上游
+// status code + body + Retry-After + Content-Type,关闭时脱敏为 502 upstream_error(不泄漏上游内容)。
+func TestWriteRelayErrPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamErr := &canon.UpstreamError{
+		Provider:    "openai",
+		StatusCode:  http.StatusTooManyRequests,
+		Body:        []byte(`{"error":{"type":"rate_limit_error","message":"too many requests"}}`),
+		ContentType: "application/json",
+		RetryAfter:  "30",
+	}
+
+	t.Run("passthrough_on", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		g, _ := gin.CreateTestContext(w)
+		g.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		c := &Controller{Relay: &relay.Service{PassthroughUpstreamErrors: true}}
+		c.writeRelayErr(g, upstreamErr)
+		if w.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "rate_limit_error") {
+			t.Fatalf("body = %q, want to contain upstream body", w.Body.String())
+		}
+		if got := w.Header().Get("Retry-After"); got != "30" {
+			t.Fatalf("Retry-After = %q, want 30", got)
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Fatalf("Content-Type = %q, want application/json", ct)
+		}
+	})
+
+	t.Run("passthrough_off_sanitized", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		g, _ := gin.CreateTestContext(w)
+		g.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		c := &Controller{Relay: &relay.Service{PassthroughUpstreamErrors: false}}
+		c.writeRelayErr(g, upstreamErr)
+		if w.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, want 502", w.Code)
+		}
+		if strings.Contains(w.Body.String(), "rate_limit_error") {
+			t.Fatalf("body leaked upstream content: %q", w.Body.String())
+		}
+	})
+
+	// Relay 为 nil(零值 Controller,如未注入)时不应 panic,且走脱敏兜底。
+	t.Run("nil_relay_sanitized", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		g, _ := gin.CreateTestContext(w)
+		g.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		(&Controller{}).writeRelayErr(g, upstreamErr)
+		if w.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, want 502", w.Code)
+		}
+	})
 }

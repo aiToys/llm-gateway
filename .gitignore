@@ -45,9 +45,6 @@ tests/e2e/playwright-report/
 .env
 .env.local
 
-# 设计稿/参考图(不入库,仅本地)
-home-final.png
-models-final.png
-models-13final.png
-user-home.png
-user-home-pro.png
+# 设计稿/参考图(不入库,仅本地):根目录散落的 UX 截图。
+# logo 在 docs/ 下,不受影响。
+/*.png
