@@ -16,8 +16,13 @@ linters:
     - misspell        # 拼写
     - gosec           # 安全
     - gocritic        # 性能/风格启发
-    # revive(风格)暂未启用: 其 exported 规则要求所有导出符号带 godoc 注释,
-    # 与现有代码冲突较大、噪音多于收益。待注释规范化后再启用。
+    - gocyclo         # 圈复杂度(阈值见 settings)
+    - bodyclose       # http.Response.Body 必须关闭
+    - revive          # 风格规则(仅启用低噪音子集,见 settings)
+  formatters:
+    enable:
+      - gofmt         # 格式统一
+      - goimports     # import 分组与排序
   settings:
     gosec:
       excludes:
@@ -26,6 +31,18 @@ linters:
     errcheck:
       exclude-functions:
         - (net/http.ResponseWriter).Write
+    gocyclo:
+      min-complexity: 30  # golangci 默认值;现有热点函数(main/Validate/ChatStream 等)留待后续重构,但拦住新增超复杂函数
+    # revive 仅启用低噪音子集;刻意排除 exported(要求导出符号带 godoc 注释,
+    # 与现有代码冲突大、噪音多于收益),待注释规范化后再单独打开。
+    revive:
+      rules:
+        - name: var-naming          # 命名规范(导出符号首字母大写等)
+        - name: error-return        # error 必须为返回值列表最后一个
+        - name: errorf              # 用 fmt.Errorf 而非 fmt.Sprintf+errors.New
+        - name: increment-decrement # i++ 优先于 i += 1
+        - name: unreachable-code    # 死代码
+        - name: context-as-argument # context 必须为首个参数
   exclusions:
     rules:
       # 测试代码放宽

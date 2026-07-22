@@ -66,7 +66,13 @@ jobs:
           GATEWAY_POSTGRES__PASSWORD: gateway
           GATEWAY_POSTGRES__DATABASE: gateway
           GATEWAY_REDIS__ADDR: localhost:6379
-        run: go test ./... -race -count=1
+        run: go test ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+      - name: Upload coverage to Codecov
+        # 公开仓库无需 token 即可上报;fail_ci_if_error=false 避免上报故障阻断 CI。
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false
 
   frontend:
     name: Frontend build
