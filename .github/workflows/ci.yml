@@ -141,7 +141,7 @@ jobs:
             'dev: true' \
             'postgres:' '  host: localhost' '  user: gateway' '  password: gateway' '  database: gateway' \
             'redis:' '  addr: localhost:6379' \
-            'server:' '  addr: ":8088"' > /tmp/ci.yaml
+            'server:' '  addr: "127.0.0.1:8088"' > /tmp/ci.yaml
           cat /tmp/ci.yaml
       # 启动时自动 migrate up;seed 单独跑灌演示数据(admin@demo.com / demo@demo.com 等)。
       - name: Seed demo data
