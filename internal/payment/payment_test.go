@@ -106,8 +106,8 @@ func makeMockNotifyRequest(outTradeNo string, amountCents int64) *http.Request {
 		Method: http.MethodPost,
 		URL: &url.URL{
 			RawQuery: url.Values{
-				"out_trade_no":  {outTradeNo},
-				"amount_cents":  {itoa(amountCents)},
+				"out_trade_no": {outTradeNo},
+				"amount_cents": {itoa(amountCents)},
 			}.Encode(),
 		},
 		Header: make(http.Header),

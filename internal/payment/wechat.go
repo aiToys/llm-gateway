@@ -93,8 +93,8 @@ func (w *Wechat) CreateOrder(in CreateOrderInput) (string, error) {
 
 func (w *Wechat) QueryOrder(outTradeNo string) (bool, string, error) {
 	tx, _, err := w.apiSVC.QueryOrderByOutTradeNo(context.Background(), native.QueryOrderByOutTradeNoRequest{
-		Mchid:       core.String(w.mchid),
-		OutTradeNo:  core.String(outTradeNo),
+		Mchid:      core.String(w.mchid),
+		OutTradeNo: core.String(outTradeNo),
 	})
 	if err != nil {
 		return false, "", fmt.Errorf("wechat query: %w", err)

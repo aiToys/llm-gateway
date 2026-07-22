@@ -42,26 +42,26 @@ type User struct {
 
 // APIKey 用户/租户的接口密钥。
 type APIKey struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	UserID      string     `json:"user_id"`
-	KeyPrefix   string     `json:"key_prefix"`
-	KeyHash     string     `json:"-"`
-	Name        string     `json:"name"`
-	Scopes      []string   `json:"scopes"`
-	Models      []string   `json:"models"`
-	RPMLimit    int        `json:"rpm_limit"`
-	TPMLimit    int        `json:"tpm_limit"`
+	ID        string   `json:"id"`
+	TenantID  string   `json:"tenant_id"`
+	UserID    string   `json:"user_id"`
+	KeyPrefix string   `json:"key_prefix"`
+	KeyHash   string   `json:"-"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	Models    []string `json:"models"`
+	RPMLimit  int      `json:"rpm_limit"`
+	TPMLimit  int      `json:"tpm_limit"`
 	// 日/月用量配额(0=不限):请求数与 token 上限,配合 RPM/TPM 形成"分钟→天→月"递进限流。
-	DailyRequestLimit   int `json:"daily_request_limit"`
-	MonthlyRequestLimit int `json:"monthly_request_limit"`
-	DailyTokenLimit     int `json:"daily_token_limit"`
-	MonthlyTokenLimit   int `json:"monthly_token_limit"`
-	IPWhitelist []string   `json:"ip_whitelist"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	Status      string     `json:"status"` // active | revoked
-	CreatedAt   time.Time  `json:"created_at"`
+	DailyRequestLimit   int        `json:"daily_request_limit"`
+	MonthlyRequestLimit int        `json:"monthly_request_limit"`
+	DailyTokenLimit     int        `json:"daily_token_limit"`
+	MonthlyTokenLimit   int        `json:"monthly_token_limit"`
+	IPWhitelist         []string   `json:"ip_whitelist"`
+	ExpiresAt           *time.Time `json:"expires_at"`
+	LastUsedAt          *time.Time `json:"last_used_at"`
+	Status              string     `json:"status"` // active | revoked
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 // Channel 渠道(tenant_id 为空表示平台默认)。
@@ -69,15 +69,15 @@ type APIKey struct {
 // 渠道级属性: provider/密钥/优先级/权重/渠道级默认成本。
 // 「该渠道支持哪些模型 + 每个模型的上游名/成本/权重/启停」规范化到 ChannelModels(独立实体)。
 type Channel struct {
-	ID       string  `json:"id"`
-	TenantID *string `json:"tenant_id"`
-	Provider string  `json:"provider"`
-	Name     string  `json:"name"`
-	BaseURL  string  `json:"base_url"`
-	APIKeyEnc string `json:"-"` // AES-GCM 密文,永不序列化
-	Priority int    `json:"priority"`
-	Weight   int    `json:"weight"`
-	Status   string `json:"status"` // active | disabled
+	ID        string  `json:"id"`
+	TenantID  *string `json:"tenant_id"`
+	Provider  string  `json:"provider"`
+	Name      string  `json:"name"`
+	BaseURL   string  `json:"base_url"`
+	APIKeyEnc string  `json:"-"` // AES-GCM 密文,永不序列化
+	Priority  int     `json:"priority"`
+	Weight    int     `json:"weight"`
+	Status    string  `json:"status"` // active | disabled
 	// 渠道级默认成本: 当某模型的 ChannelModel 成本为 0 时回退到此(减少重复填写)。
 	InputCostCentsPerM  int64 `json:"input_cost_cents_per_m"`
 	OutputCostCentsPerM int64 `json:"output_cost_cents_per_m"`
@@ -91,14 +91,14 @@ type Channel struct {
 type ChannelModel struct {
 	ID                      string    `json:"id"`
 	ChannelID               string    `json:"channel_id"`
-	ModelName               string    `json:"model_name"`         // 逻辑模型名(对外)
-	UpstreamModel           string    `json:"upstream_model"`     // 空=同名直通
+	ModelName               string    `json:"model_name"`     // 逻辑模型名(对外)
+	UpstreamModel           string    `json:"upstream_model"` // 空=同名直通
 	InputCostCentsPerM      int64     `json:"input_cost_cents_per_m"`
 	OutputCostCentsPerM     int64     `json:"output_cost_cents_per_m"`
 	CacheReadCostCentsPerM  int64     `json:"cache_read_cost_cents_per_m"`
 	CacheWriteCostCentsPerM int64     `json:"cache_write_cost_cents_per_m"`
-	Weight                  int       `json:"weight"`  // 0=继承渠道 weight
-	Status                  string    `json:"status"`  // active | disabled
+	Weight                  int       `json:"weight"` // 0=继承渠道 weight
+	Status                  string    `json:"status"` // active | disabled
 	CreatedAt               time.Time `json:"created_at"`
 }
 
@@ -315,25 +315,25 @@ type AuditLog struct {
 // RequestLog 请求/响应原文日志(生产排障/合规审计)。
 // request_body/response_body/error 可空(采样或 LogBodies=false),故用指针 nullable 扫描。
 type RequestLog struct {
-	ID           string     `json:"id"`
-	RequestID    string     `json:"request_id"`
-	TenantID     string     `json:"tenant_id"`
-	UserID       string     `json:"user_id"`
-	APIKeyID     string     `json:"api_key_id"`
-	Model        string     `json:"model"`
-	Provider     string     `json:"provider"`
-	ChannelID    string     `json:"channel_id"`
-	Method       string     `json:"method"`
-	Path         string     `json:"path"`
-	Status       int        `json:"status"`
-	LatencyMs    int        `json:"latency_ms"`
-	InputTokens  int        `json:"input_tokens"`
-	OutputTokens int        `json:"output_tokens"`
-	PriceCents   int64      `json:"price_cents"`
-	RequestBody  *string    `json:"request_body,omitempty"`
-	ResponseBody *string    `json:"response_body,omitempty"`
-	Error        *string    `json:"error,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           string    `json:"id"`
+	RequestID    string    `json:"request_id"`
+	TenantID     string    `json:"tenant_id"`
+	UserID       string    `json:"user_id"`
+	APIKeyID     string    `json:"api_key_id"`
+	Model        string    `json:"model"`
+	Provider     string    `json:"provider"`
+	ChannelID    string    `json:"channel_id"`
+	Method       string    `json:"method"`
+	Path         string    `json:"path"`
+	Status       int       `json:"status"`
+	LatencyMs    int       `json:"latency_ms"`
+	InputTokens  int       `json:"input_tokens"`
+	OutputTokens int       `json:"output_tokens"`
+	PriceCents   int64     `json:"price_cents"`
+	RequestBody  *string   `json:"request_body,omitempty"`
+	ResponseBody *string   `json:"response_body,omitempty"`
+	Error        *string   `json:"error,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // RedeemCode 充值兑换码(卡密)。平台发行,用户凭码兑换加余额。

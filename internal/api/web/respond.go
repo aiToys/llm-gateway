@@ -76,4 +76,3 @@ func friendlyBindErr(err error) string {
 		return "请求参数无效"
 	}
 }
-

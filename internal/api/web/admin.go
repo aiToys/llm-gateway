@@ -87,19 +87,19 @@ func (s *Server) adminListModels(g *gin.Context) {
 }
 
 type upsertModelReq struct {
-	ModelName            string   `json:"model_name" binding:"required"`
+	ModelName                string   `json:"model_name" binding:"required"`
 	InputPriceCentsPerM      int64    `json:"input_price_cents_per_m"`
 	OutputPriceCentsPerM     int64    `json:"output_price_cents_per_m"`
 	CacheReadPriceCentsPerM  int64    `json:"cache_read_price_cents_per_m"`
 	CacheWritePriceCentsPerM int64    `json:"cache_write_price_cents_per_m"`
 	Enabled                  bool     `json:"enabled"`
-	Description          string   `json:"description"`
-	LongDesc             string   `json:"long_desc"`
-	Tags                 []string `json:"tags"`
-	Capabilities         []string `json:"capabilities"`
-	ContextLength        int      `json:"context_length"`
-	RoutingStrategy      string   `json:"routing_strategy"`
-	PinnedChannelID      string   `json:"pinned_channel_id"`
+	Description              string   `json:"description"`
+	LongDesc                 string   `json:"long_desc"`
+	Tags                     []string `json:"tags"`
+	Capabilities             []string `json:"capabilities"`
+	ContextLength            int      `json:"context_length"`
+	RoutingStrategy          string   `json:"routing_strategy"`
+	PinnedChannelID          string   `json:"pinned_channel_id"`
 }
 
 func (s *Server) adminUpsertModel(g *gin.Context) {

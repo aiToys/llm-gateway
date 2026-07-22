@@ -19,10 +19,6 @@ linters:
     - gocyclo         # 圈复杂度(阈值见 settings)
     - bodyclose       # http.Response.Body 必须关闭
     - revive          # 风格规则(仅启用低噪音子集,见 settings)
-  formatters:
-    enable:
-      - gofmt         # 格式统一
-      - goimports     # import 分组与排序
   settings:
     gosec:
       excludes:
@@ -57,3 +53,10 @@ linters:
       # 向 http.ResponseWriter 写响应体(fmt.Fprint/Fprintf),写入失败也无法有意义地处理。
       - linters: [errcheck]
         source: 'fmt\.(Fprint|Fprintf)\(w[,:]'
+
+# 格式化器(v2: formatters 是与 linters 平级的顶级键,不能放在 linters 下,
+# 否则 `golangci-lint config verify` schema 校验会拒绝 additional properties 'formatters')
+formatters:
+  enable:
+    - gofmt         # 格式统一
+    - goimports     # import 分组与排序

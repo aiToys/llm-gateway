@@ -31,7 +31,10 @@ func TestSelectOrderedPriority(t *testing.T) {
 // 防止"高 priority 平台渠道压住低 priority 租户渠道"导致租户自带 Key 永不被使用。
 func TestSplitPriorityTenantBYOKFirst(t *testing.T) {
 	plat := func(id string, p int) *model.Channel { return &model.Channel{ID: id, Priority: p, Weight: 1} } // TenantID=nil 平台
-	tenant := func(id string, p int) *model.Channel { tid := "t1"; return &model.Channel{ID: id, Priority: p, Weight: 1, TenantID: &tid} }
+	tenant := func(id string, p int) *model.Channel {
+		tid := "t1"
+		return &model.Channel{ID: id, Priority: p, Weight: 1, TenantID: &tid}
+	}
 	// 平台渠道 priority=100,租户渠道 priority=5。租户层应优先。
 	chs := []*model.Channel{plat("plat-high", 100), tenant("tenant-low", 5), tenant("tenant-low2", 5)}
 	group, rest := splitPriority(chs)

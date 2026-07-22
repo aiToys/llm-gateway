@@ -174,4 +174,3 @@ func (s *Store) SetUserPassword(ctx context.Context, id, passwordHash string) er
 	}
 	return nil
 }
-

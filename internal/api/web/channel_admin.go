@@ -61,7 +61,6 @@ func (s *Server) validateChannelBaseURL(g *gin.Context, baseURL string) bool {
 	return false
 }
 
-
 // adminTestChannel 测试渠道连通性: 用该渠道首个模型发一条极小探针请求。
 func (s *Server) adminTestChannel(g *gin.Context) {
 	id := g.Param("id")
@@ -150,7 +149,7 @@ func (s *Server) adminListChannels(g *gin.Context) {
 			"priority": c.Priority, "weight": c.Weight,
 			"input_cost_cents_per_m": c.InputCostCentsPerM, "output_cost_cents_per_m": c.OutputCostCentsPerM,
 			"channel_models": c.ChannelModels,
-			"status": c.Status, "created_at": c.CreatedAt, "has_key": c.APIKeyEnc != "",
+			"status":         c.Status, "created_at": c.CreatedAt, "has_key": c.APIKeyEnc != "",
 			"breaker_open": c.Status == "active" && !s.Relay.ChannelOpen(g.Request.Context(), c.ID),
 		})
 	}
@@ -165,8 +164,8 @@ type channelModelReq struct {
 	OutputCostCentsPerM     int64  `json:"output_cost_cents_per_m"`
 	CacheReadCostCentsPerM  int64  `json:"cache_read_cost_cents_per_m"`
 	CacheWriteCostCentsPerM int64  `json:"cache_write_cost_cents_per_m"`
-	Weight                  int    `json:"weight"`  // 0=继承渠道 weight
-	Status                  string `json:"status"`  // 空=active
+	Weight                  int    `json:"weight"` // 0=继承渠道 weight
+	Status                  string `json:"status"` // 空=active
 }
 
 // buildChannelModels 把请求体模型行转为 model.ChannelModel(生成 id/默认 status)。

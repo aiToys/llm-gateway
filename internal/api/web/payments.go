@@ -64,13 +64,13 @@ func (s *Server) getOrderStatus(g *gin.Context) {
 		}
 	}
 	g.JSON(http.StatusOK, gin.H{"data": gin.H{
-		"order_no":        o.OutTradeNo,
-		"provider":        o.Provider,
-		"amount_cents":    o.AmountCents,
-		"status":          o.Status,
-		"prepay_data":     strPtr(o.PrepayData),
-		"expires_at":      o.ExpiresAt.Unix(),
-		"balance_cents":   bal,
+		"order_no":      o.OutTradeNo,
+		"provider":      o.Provider,
+		"amount_cents":  o.AmountCents,
+		"status":        o.Status,
+		"prepay_data":   strPtr(o.PrepayData),
+		"expires_at":    o.ExpiresAt.Unix(),
+		"balance_cents": bal,
 	}})
 }
 

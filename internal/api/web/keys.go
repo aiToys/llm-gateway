@@ -12,16 +12,16 @@ import (
 )
 
 type createKeyReq struct {
-	Name        string   `json:"name"`
-	Models      []string `json:"models"`
-	RPMLimit    int      `json:"rpm_limit"`
-	TPMLimit    int      `json:"tpm_limit"`
+	Name     string   `json:"name"`
+	Models   []string `json:"models"`
+	RPMLimit int      `json:"rpm_limit"`
+	TPMLimit int      `json:"tpm_limit"`
 	// 日/月用量配额(0=不限):请求数与 token 上限。
-	DailyRequestLimit   int `json:"daily_request_limit"`
-	MonthlyRequestLimit int `json:"monthly_request_limit"`
-	DailyTokenLimit     int `json:"daily_token_limit"`
-	MonthlyTokenLimit   int `json:"monthly_token_limit"`
-	IPWhitelist         []string    `json:"ip_whitelist"`
+	DailyRequestLimit   int        `json:"daily_request_limit"`
+	MonthlyRequestLimit int        `json:"monthly_request_limit"`
+	DailyTokenLimit     int        `json:"daily_token_limit"`
+	MonthlyTokenLimit   int        `json:"monthly_token_limit"`
+	IPWhitelist         []string   `json:"ip_whitelist"`
 	ExpiresAt           *time.Time `json:"expires_at,omitempty"` // 空=永不过期
 }
 
@@ -40,7 +40,7 @@ func (s *Server) listKeys(g *gin.Context) {
 			"daily_request_limit": k.DailyRequestLimit, "monthly_request_limit": k.MonthlyRequestLimit,
 			"daily_token_limit": k.DailyTokenLimit, "monthly_token_limit": k.MonthlyTokenLimit,
 			"ip_whitelist": k.IPWhitelist,
-			"status": k.Status, "last_used_at": k.LastUsedAt, "created_at": k.CreatedAt,
+			"status":       k.Status, "last_used_at": k.LastUsedAt, "created_at": k.CreatedAt,
 		})
 	}
 	g.JSON(http.StatusOK, gin.H{"data": out})

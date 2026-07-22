@@ -24,10 +24,10 @@ type Server struct {
 	RDB         *redis.Client
 	FileSvc     *files.Service
 	Payment     *payment.Service // 支付服务(下单/回调/查单);为 nil 时支付入口不可用
-	Dev         bool                        // 开发模式: 放开模拟充值、注册
+	Dev         bool             // 开发模式: 放开模拟充值、注册
 	AllowSignup bool
 	Playground  middleware.PlaygroundLimits // 聊天台默认每用户限流(JWT 主体,无 API Key)
-	AuthRPM     int                        // 公开鉴权端点按 IP 的 RPM 限流(防爆破);0=不限
+	AuthRPM     int                         // 公开鉴权端点按 IP 的 RPM 限流(防爆破);0=不限
 }
 
 // Register 注册全部路由(group 相对于 engine)。

@@ -12,7 +12,7 @@ import (
 func TestCanonToAnthropicReq(t *testing.T) {
 	t.Run("developer role 归为 system", func(t *testing.T) {
 		req := &canon.Request{
-			Model:    "claude-3",
+			Model:     "claude-3",
 			MaxTokens: 100,
 			Messages: []canon.Message{
 				{Role: "developer", Content: "你是助手"},

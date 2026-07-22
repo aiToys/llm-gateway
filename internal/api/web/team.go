@@ -84,8 +84,8 @@ func (s *Server) teamMembers(g *gin.Context) {
 }
 
 type transferReq struct {
-	ToUserID   string `json:"to_user_id" binding:"required"`
-	AmountCents int64 `json:"amount_cents" binding:"required"`
+	ToUserID    string `json:"to_user_id" binding:"required"`
+	AmountCents int64  `json:"amount_cents" binding:"required"`
 }
 
 // teamTransfer 团长把余额转给本团队成员(原子,不动计费核心)。

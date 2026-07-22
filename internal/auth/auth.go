@@ -19,17 +19,17 @@ const (
 
 // Subject 上下文中的主体。
 type Subject struct {
-	UserID      string
-	TenantID    string
-	Role        string
-	Email       string
-	APIKeyID    string // 走 API Key 鉴权时有值(Web JWT 无)
-	APIKeyName  string
-	TenantStatus string // 租户状态(active|disabled):API Key 鉴权时拦截已禁用租户(随 Subject 缓存,禁用后最多受 TTL 延迟)
-	UserStatus   string // 用户状态(active|disabled):同上,使管理员禁用用户在缓存 TTL 内生效
-	RPMLimit    int      // API Key 的 RPM 限额(0=不限)
-	TPMLimit    int      // API Key 的 TPM 限额(0=不限)
-	IPWhitelist []string // API Key 的 IP 白名单(空=不限)
+	UserID       string
+	TenantID     string
+	Role         string
+	Email        string
+	APIKeyID     string // 走 API Key 鉴权时有值(Web JWT 无)
+	APIKeyName   string
+	TenantStatus string   // 租户状态(active|disabled):API Key 鉴权时拦截已禁用租户(随 Subject 缓存,禁用后最多受 TTL 延迟)
+	UserStatus   string   // 用户状态(active|disabled):同上,使管理员禁用用户在缓存 TTL 内生效
+	RPMLimit     int      // API Key 的 RPM 限额(0=不限)
+	TPMLimit     int      // API Key 的 TPM 限额(0=不限)
+	IPWhitelist  []string // API Key 的 IP 白名单(空=不限)
 	// 日/月用量配额(0=不限):与 RPM/TPM 同源,由 APIKeyAuth 注入,preflight/中间件据此拦截超额。
 	DailyRequestLimit   int
 	MonthlyRequestLimit int

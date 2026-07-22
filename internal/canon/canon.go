@@ -46,7 +46,7 @@ type FileRef struct {
 // Message 一条消息。Content 为字符串(纯文本)或 ContentPart 数组(多模态)。
 type Message struct {
 	Role             string     `json:"role"`
-	Content          any        `json:"content,omitempty"`            // string | []ContentPart
+	Content          any        `json:"content,omitempty"`           // string | []ContentPart
 	ReasoningContent string     `json:"reasoning_content,omitempty"` // 推理模型思考过程(DeepSeek/GLM/Qwen 等),上游透传
 	Name             string     `json:"name,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
@@ -55,9 +55,9 @@ type Message struct {
 
 // ToolCall 工具调用(基本透传)。
 type ToolCall struct {
-	Index int    `json:"index,omitempty"` // OpenAI 流式增量顺序(非流式可为 0/省略)
-	ID    string `json:"id"`
-	Type  string `json:"type"` // function
+	Index    int    `json:"index,omitempty"` // OpenAI 流式增量顺序(非流式可为 0/省略)
+	ID       string `json:"id"`
+	Type     string `json:"type"` // function
 	Function struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
@@ -81,14 +81,14 @@ type Request struct {
 	Temperature *float64  `json:"temperature,omitempty"`
 	TopP        *float64  `json:"top_p,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Stream      bool          `json:"stream,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
 	// StreamOptions 流式选项。网关在流式路径强制 IncludeUsage=true,确保上游返回 usage 帧,
 	// 否则 OpenAI 兼容上游默认不带 usage → 流式请求 0 token 计费(静默漏计)。
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-	Stop        []string  `json:"stop,omitempty"`
-	Tools       []Tool    `json:"tools,omitempty"`
-	ToolChoice  any       `json:"tool_choice,omitempty"`
-	User        string    `json:"user,omitempty"`
+	Stop          []string       `json:"stop,omitempty"`
+	Tools         []Tool         `json:"tools,omitempty"`
+	ToolChoice    any            `json:"tool_choice,omitempty"`
+	User          string         `json:"user,omitempty"`
 	// 入口标记,用于 egress 决定响应格式。
 	Source string `json:"-"`
 }

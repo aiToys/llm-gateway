@@ -205,7 +205,7 @@ func (s *Store) InsertUsage(ctx context.Context, u *model.UsageRecord) error {
 
 // UsageAggregate 按日/模型聚合用量与费用。
 type UsageAggregate struct {
-	Bucket       string `json:"bucket"`       // YYYY-MM-DD
+	Bucket       string `json:"bucket"` // YYYY-MM-DD
 	Model        string `json:"model"`
 	Requests     int    `json:"requests"`
 	InputTokens  int    `json:"input_tokens"`

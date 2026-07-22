@@ -159,7 +159,7 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 	}
 	realChs := []chSeed{
 		{baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", name: "百炼 · 通义千问",
-			models: []string{"qwen3.7-max", "qwen3-max", "qwen-plus", "qwen-turbo", "qwq-plus"},
+			models:    []string{"qwen3.7-max", "qwen3-max", "qwen-plus", "qwen-turbo", "qwq-plus"},
 			defaultIn: 168, defaultOut: 672,
 			costs: map[string][4]int64{
 				"qwen3.7-max": {840, 2520, 0, 0},
@@ -169,28 +169,28 @@ func seed(st *store.Store, cipher *crypto.Cipher) error {
 				"qwq-plus":    {112, 280, 0, 0},
 			}},
 		{baseURL: "https://ark.cn-beijing.volces.com/api/v3", name: "火山方舟 · 豆包",
-			models: []string{"doubao-seed-1.6", "doubao-seed-1.6-flash"},
+			models:    []string{"doubao-seed-1.6", "doubao-seed-1.6-flash"},
 			defaultIn: 56, defaultOut: 560,
 			costs: map[string][4]int64{
 				"doubao-seed-1.6":       {56, 560, 0, 0},
 				"doubao-seed-1.6-flash": {48, 160, 0, 0},
 			}},
 		{baseURL: "https://qianfan.baidubce.com/v2", name: "千帆 · 文心",
-			models: []string{"ERNIE-5.1", "ERNIE-4.5-Turbo-128K"},
+			models:    []string{"ERNIE-5.1", "ERNIE-4.5-Turbo-128K"},
 			defaultIn: 280, defaultOut: 1260,
 			costs: map[string][4]int64{
 				"ERNIE-5.1":            {280, 1260, 0, 0},
 				"ERNIE-4.5-Turbo-128K": {56, 224, 0, 0},
 			}},
 		{baseURL: "https://api.deepseek.com", name: "DeepSeek",
-			models: []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+			models:    []string{"deepseek-v4-flash", "deepseek-v4-pro"},
 			defaultIn: 70, defaultOut: 140,
 			costs: map[string][4]int64{
 				"deepseek-v4-flash": {70, 140, 1, 0},
 				"deepseek-v4-pro":   {210, 420, 3, 0},
 			}},
 		{baseURL: "https://open.bigmodel.cn/api/paas/v4", name: "智谱 · GLM",
-			models: []string{"glm-5.2", "glm-4.7"},
+			models:    []string{"glm-5.2", "glm-4.7"},
 			defaultIn: 140, defaultOut: 560,
 			costs: map[string][4]int64{
 				"glm-5.2": {560, 1960, 80, 0},

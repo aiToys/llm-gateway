@@ -22,8 +22,8 @@ type Service struct {
 	Store      *store.Store
 	Billing    *billing.Service
 	providers  map[string]Provider // name -> provider
-	BaseURL    string             // 站点根 URL,用于拼回调地址
-	ExpiresMin int                // 订单有效期(分钟)
+	BaseURL    string              // 站点根 URL,用于拼回调地址
+	ExpiresMin int                 // 订单有效期(分钟)
 }
 
 func New(st *store.Store, b *billing.Service, baseURL string, expiresMin int) *Service {
