@@ -214,3 +214,47 @@ initContainers:
 ```
 
 容器场景下，日常运行实例可保持默认（启动自动 `up`），仅在需要回滚时显式执行 `-migrate down`。
+
+---
+
+## 六、生产安全须知
+
+> 漏洞上报与支持版本见 [SECURITY.md](https://github.com/aitoys/llm-gateway/blob/main/SECURITY.md)。下列是部署侧必做的硬性清单。
+
+### 1. 关闭 dev 模式（物理防线）
+
+`dev: true` 会放宽密钥校验、放开自助充值/注册，**仅限本地开发**。生产必须 `dev: false`。
+
+v0.2.x 起额外加了一道物理防线：`dev: true` 时 `Validate()` 强制要求 `server.addr` 仅监听回环地址（`127.0.0.1` / `localhost` / `::1`），否则**启动即拒绝**——防止误把 dev 模式暴露到公网。
+
+```yaml
+dev: false
+server:
+  addr: "0.0.0.0:8088"   # 生产可监听全部地址;dev 模式下此处必须为回环
+```
+
+### 2. 密钥与首个管理员
+
+- `auth.jwt_secret`：JWT 签名密钥，生产必改，建议 ≥ 32 字节随机。
+- `auth.channel_key_master`：渠道密钥 AES 主密钥，32 字节 hex（`openssl rand -hex 32`）。一旦设置后不可随意更改，否则历史加密的渠道凭证无法解密。
+- 通过环境变量 / Secret 注入，避免落盘。
+- `auth.allow_signup: false`（按需开放注册）。
+- 用 `auth.bootstrap_admin` 或 `--seed` 建立首个平台管理员。
+
+### 3. 控制面 / 数据面隔离
+
+- **数据面** `/v1/*`、`/files/*`：公网可达，API Key 鉴权 + 限流 + 长连接流式，无状态可横向扩展。
+- **控制面** `/api/*`、`/admin`：管理端 REST + Web，**应在反向代理层限制为内网访问**（尤其 `/api/admin/*` 跨租户管理接口）。
+
+### 4. 登录爆破防护
+
+`web.auth_rpm`（默认 `20`）对 `/api/auth/login`、`/api/auth/register`、`/api/invites/accept` 按**来源 IP** 限流每分钟请求数，超出返回 429。生产可按规模调大/调小，置 `0` 关闭（不建议）。
+
+### 5. SSRF 防护（上游出站）
+
+网关向供应商渠道发起的出站请求内置 SSRF 防护（`internal/provider/transport.go`）：
+
+- `Transport.DialContext`：建连前 resolve 主机，命中内网 / 回环 / 链路本地地址直接拒绝（同时防 DNS rebinding）。
+- `http.Client.CheckRedirect`：每次重定向后重新校验目标主机，拦截 `302 → http://169.254.169.254` 等云元数据劫持。
+
+该防护在 `dev: false` 时启用；`dev: true` 放宽（用于本地 `127.0.0.1` 上游测试）。BYOK 场景下租户自填的上游 base_url 同样受此防护约束。

@@ -186,11 +186,13 @@ defaults:
 | --- | --- | --- |
 | `web.user_dist` | `""` | 用户端 SPA dist 目录，空则不挂载 `/` |
 | `web.admin_dist` | `""` | 管理端 SPA dist 目录，空则不挂载 `/admin` |
+| `web.auth_rpm` | `20` | 公开鉴权端点（`/api/auth/login`/`register`/`invites/accept`）按来源 IP 的每分钟请求上限，防爆破；`0` 表示不限 |
 
 ```yaml
 web:
   user_dist: "./web/user/dist"
   admin_dist: "./web/admin/dist"
+  auth_rpm: 20  # 登录/注册/邀请接受 按 IP 每分钟上限
 ```
 
 ---

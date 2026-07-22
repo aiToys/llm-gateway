@@ -189,7 +189,10 @@ Postgres schema 由 `internal/store/migrations/` 下的 SQL 迁移定义。v0.2.
 | `balance_after` | bigint | 本次流转后的余额快照 |
 | `created_at` | timestamptz | |
 
-> 在 `billing_ledger(request_id) WHERE type='usage'` 上建有部分唯一索引（`0015_billing_outbox`），保证同一请求的 usage 账目至多一条，是并发幂等计费的闸门。
+> 在 `billing_ledger(user_id, request_id) WHERE type='usage'` 上建有部分唯一索引（`uniq_ledger_usage_request`），保证**同一用户**同一请求的 usage 账目至多一条，是并发幂等计费的闸门。
+
+> [!NOTE]
+> v0.2.x 之前该索引为单列 `(request_id)`（全局去重）。`0002_ledger_usage_unique_scope` 将其收紧为复合 `(user_id, request_id)`：原先按 `request_id` 全局唯一，会被「同一 request_id 在不同用户下重复落账」绕过（例如免费试用额度可被同一 request_id 跨用户重放），复合键把幂等作用域正确限定到用户级。
 
 其余表：`tenants`、`usage_records`（含 `api_key_id`/`provider`/`channel_id`/`price_cents`/`cost_cents`，单表完成按 key/模型/供应商 的多维聚合）、`recharges`、`files`、`audit_logs`（`actor_id`/`action`/`target`/`payload(jsonb)`/`ip`/`created_at`）。
 

@@ -1,5 +1,14 @@
 # LLM Gateway
 
+[![CI](https://github.com/aitoys/llm-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/aitoys/llm-gateway/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aitoys/llm-gateway)](https://goreportcard.com/report/github.com/aitoys/llm-gateway)
+[![Coverage](https://codecov.io/gh/aitoys/llm-gateway/branch/main/graph/badge.svg)](https://codecov.io/gh/aitoys/llm-gateway)
+[![Go Version](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Release](https://img.shields.io/github/v/release/aitoys/llm-gateway)](https://github.com/aitoys/llm-gateway/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[English](README.en.md) | **简体中文**
+
 > 一个开源的多租户大模型网关:统一对接**阿里云百练 / 火山方舟 / 百度千帆**,对外同时提供 **OpenAI** 与 **Anthropic** 兼容接口,内置多模态、预付计费、API Key 管理、用量仪表盘与多轮对话台。
 
 基于"端口适配器(六方形)架构":入口双协议统一转为 OpenAI 格式内部规范(canonical),出口适配器再转为各供应商原生协议。三家国内供应商均提供 OpenAI 兼容端点,故共用一个适配器实现。
@@ -32,6 +41,21 @@ npm run docs:build       # 构建静态站点到 docs-site/.vitepress/dist
 - **工具调用归一** — OpenAI tools 与 Anthropic `tools`/`tool_use`/`tool_result` 跨协议双向互转(含流式 `input_json_delta`),经 `/v1/messages` 调 OpenAI 模型工具上下文不丢
 - **可观测性** — Prometheus `/metrics`(RPM/TPM/延迟/计费/熔断/在途)、`/healthz` 存活 + `/readyz` 就绪探针、结构化日志 + `request_id` 全链路关联
 - **单二进制部署** — 前端 SPA 构建产物内嵌,一个端口交付全部功能
+
+## 🖼 截图
+
+<table>
+  <tr>
+    <td align="center">首页</td>
+    <td align="center">模型广场</td>
+    <td align="center">定价</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/screenshots/shot-home.png" alt="首页"></td>
+    <td><img src="docs/images/screenshots/shot-marketplace.png" alt="模型广场"></td>
+    <td><img src="docs/images/screenshots/shot-pricing.png" alt="定价"></td>
+  </tr>
+</table>
 
 ## 🏗 架构
 
