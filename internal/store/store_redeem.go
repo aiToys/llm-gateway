@@ -70,7 +70,8 @@ func (s *Store) RedeemCodeAtomic(ctx context.Context, code, userID, tenantID str
 		// 写 recharge 账目(PriceCents 负数=加余额,与 AdjustAtomic/Recharge 一致;BalanceAfter 取加余额后快照)。
 		leg := &model.BillingLedger{
 			ID: crypto.NewID(), TenantID: tenantID, UserID: userID,
-			PriceCents: -amount, Type: model.LedgerRecharge, BalanceAfter: newBalance, CreatedAt: time.Now(),
+			RequestID: "redeem", Model: "-", PriceCents: -amount, MarginCents: -amount,
+			Type: model.LedgerRecharge, BalanceAfter: newBalance, CreatedAt: time.Now(),
 		}
 		_, e = tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(leg)...)
 		return e

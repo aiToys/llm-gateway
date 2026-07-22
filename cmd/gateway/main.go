@@ -107,7 +107,8 @@ func main() {
 	// 控制面 REST
 	webServer := &web.Server{Store: deps.Store, Auth: deps.Auth, Billing: deps.Billing, Relay: deps.Relay, Cipher: deps.Cipher, RDB: deps.RDB, FileSvc: deps.Files,
 		Payment: deps.Payment, Dev: cfg.Dev, AllowSignup: cfg.Auth.AllowSignup,
-		Playground: middleware.PlaygroundLimits{RPMLimit: cfg.Web.Playground.RPMLimit, TPMLimit: cfg.Web.Playground.TPMLimit}}
+		Playground: middleware.PlaygroundLimits{RPMLimit: cfg.Web.Playground.RPMLimit, TPMLimit: cfg.Web.Playground.TPMLimit},
+		AuthRPM:    cfg.Web.AuthRPM}
 	webServer.Register(r)
 
 	// 后台 worker(payment sweeper / billing retry)共用一个可取消 root context,

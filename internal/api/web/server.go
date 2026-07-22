@@ -27,6 +27,7 @@ type Server struct {
 	Dev         bool                        // 开发模式: 放开模拟充值、注册
 	AllowSignup bool
 	Playground  middleware.PlaygroundLimits // 聊天台默认每用户限流(JWT 主体,无 API Key)
+	AuthRPM     int                        // 公开鉴权端点按 IP 的 RPM 限流(防爆破);0=不限
 }
 
 // Register 注册全部路由(group 相对于 engine)。
@@ -38,7 +39,7 @@ func (s *Server) Register(r *gin.Engine) {
 		pub.GET("/models", s.publicModels)
 		pub.GET("/providers", s.publicProviders)
 	}
-	authg := api.Group("/auth")
+	authg := api.Group("/auth", middleware.AuthRateLimit(s.RDB, s.AuthRPM))
 	{
 		authg.POST("/register", s.register)
 		authg.POST("/login", s.login)
@@ -50,7 +51,7 @@ func (s *Server) Register(r *gin.Engine) {
 	// 团队邀请: 公开(凭邀请 token 自鉴)。
 	{
 		api.GET("/invites/info", s.inviteInfo)
-		api.POST("/invites/accept", s.inviteAccept)
+		api.POST("/invites/accept", middleware.AuthRateLimit(s.RDB, s.AuthRPM), s.inviteAccept)
 	}
 	// 需登录
 	jwt := api.Group("", middleware.JWTAuth(s.Auth, s.Store, s.RDB))
@@ -99,7 +100,6 @@ func (s *Server) Register(r *gin.Engine) {
 		admin.PATCH("/users/:id/status", s.adminSetUserStatus)
 		admin.PUT("/users/:id", s.adminUpdateUser)
 		admin.POST("/users/:id/password", s.adminResetPassword)
-		admin.POST("/users/:id/balance", s.adminAdjustBalance)
 		admin.GET("/channels", s.adminListChannels)
 		admin.POST("/channels", s.adminCreateChannel)
 		admin.PUT("/channels/:id", s.adminUpdateChannel)
@@ -132,6 +132,8 @@ func (s *Server) Register(r *gin.Engine) {
 		platform.GET("/usage/aggregate", s.adminUsageAggregate)
 		platform.GET("/audit", s.adminAudit)
 		platform.POST("/redeem-codes", s.adminCreateRedeemCodes)
+		// 余额调账影响平台资金流水,仅平台管理员(租户内调拨走 team transfer,不动总账)。
+		platform.POST("/users/:id/balance", s.adminAdjustBalance)
 		platform.GET("/redeem-codes", s.adminListRedeemCodes)
 	}
 }

@@ -435,13 +435,13 @@ func imageSourceToData(src json.RawMessage) string {
 		Type      string `json:"type"`
 		MediaType string `json:"media_type"`
 		Data      string `json:"data"`
-		Url       string `json:"url"`
+		URL       string `json:"url"`
 	}
 	if err := json.Unmarshal(src, &s); err != nil {
 		return ""
 	}
 	if s.Type == "url" {
-		return s.Url
+		return s.URL
 	}
 	if s.Data != "" {
 		return "data:" + s.MediaType + ";base64," + s.Data

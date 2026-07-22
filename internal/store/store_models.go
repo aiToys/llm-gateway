@@ -144,17 +144,15 @@ func (s *Store) EffectivePrice(ctx context.Context, tenantID, modelName string) 
 		if !enabled {
 			return nil, ErrNotFound
 		}
-		// 策略是模型级属性,租户覆盖定价时仍从全局模型读取。
-		// 策略与缓存售价是模型级属性,租户覆盖定价时仍从全局模型读取。
-		rs, pin := "", ""
-		var cr, cw int64
-		if gm, gerr := s.GetModel(ctx, modelName); gerr == nil {
-			rs = gm.RoutingStrategy
-			pin = gm.PinnedChannelID
-			cr = gm.CacheReadPriceCentsPerM
-			cw = gm.CacheWritePriceCentsPerM
+		// 租户覆盖开启时,仍须尊重全局模型的启停/存在性:平台下架(enabled=false)或已删除的模型,
+		// 租户覆盖不应放行——否则渠道侧多已下线得 404,平台失去下架管控权,且排障困惑。
+		gm, gerr := s.GetModel(ctx, modelName)
+		if gerr != nil || !gm.Enabled {
+			return nil, ErrNotFound
 		}
-		return &model.ModelDef{ModelName: modelName, InputPriceCentsPerM: in, OutputPriceCentsPerM: out, CacheReadPriceCentsPerM: cr, CacheWritePriceCentsPerM: cw, Enabled: true, RoutingStrategy: rs, PinnedChannelID: pin}, nil
+		return &model.ModelDef{ModelName: modelName, InputPriceCentsPerM: in, OutputPriceCentsPerM: out,
+			CacheReadPriceCentsPerM: gm.CacheReadPriceCentsPerM, CacheWritePriceCentsPerM: gm.CacheWritePriceCentsPerM,
+			Enabled: true, RoutingStrategy: gm.RoutingStrategy, PinnedChannelID: gm.PinnedChannelID}, nil
 	}
 	// 区分"租户无覆盖(pgx.ErrNoRows → 回退全局)"与"DB 错误(应上抛;否则连接抖动时用户按错误价计费)"。
 	if !errors.Is(err, pgx.ErrNoRows) {

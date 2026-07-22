@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -112,6 +113,9 @@ type Web struct {
 	// Playground 针对聊天台(JWT 鉴权,无 API Key)的默认限流,防止登录用户绕过 API Key 限额
 	// 无限冲击上游。0=不限(向下兼容;生产建议设非零值)。
 	Playground PlaygroundLimits `yaml:"playground"`
+	// AuthRPM 公开鉴权端点(/api/auth/login|register|invites/accept)按来源 IP 的每分钟请求上限,
+	// 防止 bcrypt 被并行爆破/凭证填充。0=不限(向下兼容;生产建议设非零值如 20)。
+	AuthRPM int `yaml:"auth_rpm"`
 }
 
 // PlaygroundLimits 聊天台默认每用户限流。
@@ -191,6 +195,7 @@ func defaults() *Config {
 			UserDist: "web/user/dist", AdminDist: "web/admin/dist",
 			// 聊天台默认每用户限流:防止登录用户(JWT,无 API Key)无限冲击上游。
 			Playground: PlaygroundLimits{RPMLimit: 60, TPMLimit: 60000},
+			AuthRPM:    20,
 		},
 		Payment: Payment{ExpiresMin: 15},
 	}
@@ -211,6 +216,11 @@ var (
 
 // Validate 校验生产关键配置。dev 模式下放宽(仅告警),便于本地开发/seed。
 func (c *Config) Validate() error {
+	// dev 模式仅允许 loopback 监听:dev 下 mock 支付无验签可伪造到账、JWTSecret 退化为全网
+	// 通用弱密钥,误部署到公网 = 无限白嫖 + 超管 JWT 伪造。监听非回环(含 ":8080"/0.0.0.0)即拒绝启动。
+	if c.Dev && !isLoopbackAddr(c.Server.Addr) {
+		return fmt.Errorf("dev=true 仅允许 loopback 监听(127.0.0.1/localhost),当前 server.addr=%q 暴露非回环地址;生产部署请设 dev:false 并配置真实密钥", c.Server.Addr)
+	}
 	if c.Dev {
 		// 开发态: 不阻断启动,但确保有值以免空指针。
 		if c.Auth.JWTSecret == "" {
@@ -255,6 +265,22 @@ func (c *Config) Validate() error {
 func isWeak(v string, set map[string]struct{}) bool {
 	_, ok := set[v]
 	return ok
+}
+
+// isLoopbackAddr 判断 server.addr 是否仅监听回环地址。
+// ":8080"/"0.0.0.0:8080"/"[::]:8080"(空 host 或全零)视为监听全部接口,返回 false。
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr // 无端口,整体视为 host
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return host == "localhost"
 }
 
 func loadYAML(path string, c *Config) error {

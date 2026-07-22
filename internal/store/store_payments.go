@@ -80,10 +80,12 @@ func (s *Store) SettlePaymentAtomic(ctx context.Context, outTradeNo, txnID strin
 		storeID(), tenantID, userID, amount, "success", paidAt); err != nil {
 		return false, 0, err
 	}
-	if _, err = tx.Exec(ctx,
-		`INSERT INTO billing_ledger(id,tenant_id,user_id,request_id,model,input_tokens,output_tokens,cost_cents,price_cents,margin_cents,type,balance_after,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		storeID(), tenantID, userID, outTradeNo, "-", 0, 0, 0, -amount, 0, model.LedgerRecharge, nb, paidAt); err != nil {
+	leg := &model.BillingLedger{
+		ID: storeID(), TenantID: tenantID, UserID: userID,
+		RequestID: outTradeNo, Model: "-", PriceCents: -amount, MarginCents: -amount,
+		Type: model.LedgerRecharge, BalanceAfter: nb, CreatedAt: paidAt,
+	}
+	if _, err = tx.Exec(ctx, ledgerInsertSQL, ledgerInsertArgs(leg)...); err != nil {
 		return false, 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {

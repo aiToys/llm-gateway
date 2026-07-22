@@ -36,7 +36,7 @@ func TestChatNonStream(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := New("test", srv.URL)
+	a := New("test", srv.URL, true) // dev=true: httptest 本地服务(127.0.0.1)需放行 SSRF 校验
 	ch := &provider.Channel{Provider: "test", APIKey: "k", BaseURL: srv.URL}
 	resp, err := a.Chat(context.Background(), ch, &canon.Request{
 		Model:    "qwen-max",
@@ -70,7 +70,7 @@ func TestChatStream(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := New("test", srv.URL)
+	a := New("test", srv.URL, true) // dev=true: httptest 本地服务(127.0.0.1)需放行 SSRF 校验
 	ch := &provider.Channel{Provider: "test", BaseURL: srv.URL, APIKey: "k"}
 	out, err := a.ChatStream(context.Background(), ch, &canon.Request{Model: "qwen-max", Messages: []canon.Message{{Role: "user", Content: "x"}}})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestChatError(t *testing.T) {
 		w.Write([]byte(`{"error":{"message":"invalid api key"}}`))
 	}))
 	defer srv.Close()
-	a := New("test", srv.URL)
+	a := New("test", srv.URL, true) // dev=true: httptest 本地服务(127.0.0.1)需放行 SSRF 校验
 	ch := &provider.Channel{BaseURL: srv.URL, APIKey: "bad"}
 	_, err := a.Chat(context.Background(), ch, &canon.Request{Model: "x", Messages: []canon.Message{{Role: "user", Content: "y"}}})
 	if err == nil || !strings.Contains(err.Error(), "401") {

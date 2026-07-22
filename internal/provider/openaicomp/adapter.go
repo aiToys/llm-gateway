@@ -28,22 +28,15 @@ type Adapter struct {
 }
 
 // New 构造一个 OpenAI 兼容适配器。
-func New(name, defaultBaseURL string) *Adapter {
-	// DisableKeepAlives: 部分供应商(如 airouter)会主动关闭空闲 keep-alive 连接,
-	// 客户端复用已关闭的连接会得到 EOF。禁用连接复用,每请求新建连接,
-	// 配合 relay 的 EOF 瞬时重试,彻底避免"keep-alive 连接被对端关闭"类 EOF。
-	transport := func() *http.Transport {
-		return &http.Transport{
-			DisableKeepAlives: true,
-			// 流式仅约束响应头到达时间,不约束 body 读取阶段(长流式合法)。
-			ResponseHeaderTimeout: 30 * time.Second,
-		}
-	}
+func New(name, defaultBaseURL string, dev bool) *Adapter {
+	// client/streamClient 复用 provider.NewClient: 每次建连前 resolve 校验 IP + 重定向重校验,防 SSRF
+	// (DNS rebinding / 302->云元数据)。DisableKeepAlives 同原由(对端关闭空闲连接致 EOF 复用问题,
+	// 配合 relay 的 EOF 瞬时重试彻底避免)。
 	return &Adapter{
 		name:           name,
 		defaultBaseURL: defaultBaseURL,
-		client:         &http.Client{Timeout: 5 * time.Minute, Transport: transport()},
-		streamClient:   &http.Client{Transport: transport()}, // 无整体 Timeout;由请求 ctx 控制生命周期
+		client:         provider.NewClient(dev, false, 30*time.Second, 5*time.Minute),
+		streamClient:   provider.NewClient(dev, false, 30*time.Second, 0), // 0=无整体超时,由请求 ctx 控制生命周期
 	}
 }
 
@@ -131,7 +124,7 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+ch.APIKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
-	resp, err := a.streamClient.Do(httpReq)
+	resp, err := a.streamClient.Do(httpReq) //nolint:bodyclose // body 在下方 goroutine 内 defer Close(跨 goroutine,bodyclose 无法追踪)
 	if err != nil {
 		return nil, err
 	}

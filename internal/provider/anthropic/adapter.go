@@ -31,16 +31,14 @@ type Adapter struct {
 }
 
 // New 构造 Anthropic 适配器;defaultBaseURL 通常为 https://api.anthropic.com。
-func New(name, defaultBaseURL string) *Adapter {
-	// DisableKeepAlives: 与 openaicomp 同理,避免对端关闭空闲连接导致 EOF 复用问题。
-	transport := func() *http.Transport {
-		return &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 30 * time.Second}
-	}
+func New(name, defaultBaseURL string, dev bool) *Adapter {
+	// client/streamClient 复用 provider.NewClient: 每次建连前 resolve 校验 IP + 重定向重校验,防 SSRF;
+	// DisableKeepAlives 同原由(对端关闭空闲连接致 EOF 复用问题)。
 	return &Adapter{
 		name:           name,
 		defaultBaseURL: defaultBaseURL,
-		client:         &http.Client{Timeout: 5 * time.Minute, Transport: transport()},
-		streamClient:   &http.Client{Transport: transport()}, // 无整体 Timeout;由请求 ctx 控制
+		client:         provider.NewClient(dev, false, 30*time.Second, 5*time.Minute),
+		streamClient:   provider.NewClient(dev, false, 30*time.Second, 0), // 0=无整体超时,由请求 ctx 控制
 	}
 }
 
@@ -74,7 +72,7 @@ func (a *Adapter) Chat(ctx context.Context, ch *provider.Channel, req *canon.Req
 	if err != nil {
 		return nil, err
 	}
-	resp, raw, err := a.do(ctx, ch, "/v1/messages", payload)
+	resp, raw, err := a.do(ctx, ch, "/v1/messages", payload) //nolint:bodyclose // resp.Body 已在 do() 内关闭(跨函数,bodyclose 无法追踪)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +97,7 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 	httpReq.Header.Set("x-api-key", ch.APIKey)
 	httpReq.Header.Set("anthropic-version", apiVersion)
 	httpReq.Header.Set("Accept", "text/event-stream")
-	resp, err := a.streamClient.Do(httpReq)
+	resp, err := a.streamClient.Do(httpReq) //nolint:bodyclose // body 在下方 goroutine 内 defer Close(跨 goroutine,bodyclose 无法追踪)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +118,7 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 		var msgID string
 		// prompt(input) tokens 仅在 message_start.message.usage 中出现一次;message_delta.usage 只含
 		// output/cache。缓存此值,在末帧 message_delta 时与 output 合并,否则流式 PromptTokens 恒为 0 → 漏算输入计费。
-		var promptTokens int
+		var promptTokens, cacheRead, cacheWrite int
 		roleSent := false // 是否已投递首帧 role:assistant(OpenAI SDK 状态机要求)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
@@ -133,7 +131,7 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 			}
 			var ev evLite
 			if json.Unmarshal([]byte(data), &ev) == nil {
-				a.emitChunk(ctx, out, &ev, toolArgs, toolMeta, &msgID, req.Model, &promptTokens, &roleSent)
+				a.emitChunk(ctx, out, &ev, toolArgs, toolMeta, &msgID, req.Model, &promptTokens, &roleSent, &cacheRead, &cacheWrite)
 			}
 		}
 		if err := sc.Err(); err != nil {
@@ -147,19 +145,25 @@ func (a *Adapter) ChatStream(ctx context.Context, ch *provider.Channel, req *can
 }
 
 // emitChunk 按事件类型转 canon chunk 并投递(out 满时尊重 ctx,不丢消息)。
-func (a *Adapter) emitChunk(ctx context.Context, out chan<- *canon.StreamChunk, ev *evLite, toolArgs map[int]string, toolMeta map[int]struct{ id, name string }, msgID *string, model string, promptTokens *int, roleSent *bool) {
+func (a *Adapter) emitChunk(ctx context.Context, out chan<- *canon.StreamChunk, ev *evLite, toolArgs map[int]string, toolMeta map[int]struct{ id, name string }, msgID *string, model string, promptTokens *int, roleSent *bool, cacheRead, cacheWrite *int) {
 	switch ev.Type {
 	case "message_start":
 		var m struct {
 			ID    string `json:"id"`
 			Usage *struct {
-				InputTokens int `json:"input_tokens"`
+				InputTokens              int `json:"input_tokens"`
+				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 			} `json:"usage"`
 		}
 		_ = json.Unmarshal(ev.Msg, &m)
 		*msgID = m.ID
 		if m.Usage != nil {
 			*promptTokens = m.Usage.InputTokens
+			// cache token 按 Anthropic 规范只在 message_start 出现,message_delta.usage 不回传,
+			// 此处缓存供末帧合并,否则流式 cache 计费丢失(命中缓存会按全价 input 计费)。
+			*cacheRead = m.Usage.CacheReadInputTokens
+			*cacheWrite = m.Usage.CacheCreationInputTokens
 		}
 		// 首帧投递 role:assistant 占位(OpenAI SDK 状态机要求首帧 delta 含 role),
 		// 与 openaicomp/mock 行为对齐。
@@ -225,12 +229,11 @@ func (a *Adapter) emitChunk(ctx context.Context, out chan<- *canon.StreamChunk, 
 		fr := stopToFinish(d.StopReason)
 		in := *promptTokens
 		outT := 0
-		var cr, cw int
 		if ev.Usage != nil {
 			outT = ev.Usage.OutputTokens
-			cr = ev.Usage.CacheReadInputTokens
-			cw = ev.Usage.CacheCreationInputTokens
 		}
+		// cache token 仅在 message_start 出现(message_delta.usage 不回传),用首帧缓存值。
+		cr, cw := *cacheRead, *cacheWrite
 		u := &canon.Usage{
 			PromptTokens:     in,
 			CompletionTokens: outT,

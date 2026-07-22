@@ -110,7 +110,7 @@ func APIKeyAuth(s *store.Store, rdb *redis.Client) gin.HandlerFunc {
 		}
 		// IP 白名单:配置了非空列表时,仅允许列表内来源 IP(缓存命中也需校验)。
 		if !ipAllowed(g.ClientIP(), sub.IPWhitelist) {
-			abortAuth(g, "ip_not_allowed")
+			abortForbidden(g, "ip_not_allowed")
 			return
 		}
 		g.Request = g.Request.WithContext(auth.WithSubject(g.Request.Context(), sub))
@@ -254,4 +254,10 @@ func RequirePlatformAdmin() gin.HandlerFunc {
 
 func abortAuth(g *gin.Context, typ string) {
 	g.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "authentication_error", "message": typ}})
+}
+
+// abortForbidden 已通过认证但来源 IP 不被允许时用 403,区别于 abortAuth 的 401(未认证):
+// 客户端见 401 会刷新 token/重登(对 IP 不符无效,徒增噪声),403 才是正确语义。
+func abortForbidden(g *gin.Context, typ string) {
+	g.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "authorization_error", "message": typ}})
 }

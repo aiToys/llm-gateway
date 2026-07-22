@@ -59,7 +59,7 @@ func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 
 		// RPM 预检
 		if rpmLimit > 0 {
-			if inc(rdb, local, ctx, rpmKey, 1) > int64(rpmLimit) {
+			if inc(ctx, rdb, local, rpmKey, 1) > int64(rpmLimit) {
 				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 					"error": gin.H{"type": "rate_limit_exceeded", "message": "RPM limit exceeded"},
 				})
@@ -70,7 +70,7 @@ func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 		if !isPlayground {
 			if sub.DailyRequestLimit > 0 {
 				k := "quota:req:d:" + ident + ":" + now.Format("20060102")
-				if incTTL(rdb, local, ctx, k, 1, 25*time.Hour) > int64(sub.DailyRequestLimit) {
+				if incTTL(ctx, rdb, local, k, 1, 25*time.Hour) > int64(sub.DailyRequestLimit) {
 					g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 						"error": gin.H{"type": "quota_exceeded", "message": "daily request quota exceeded"},
 					})
@@ -79,7 +79,7 @@ func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 			}
 			if sub.MonthlyRequestLimit > 0 {
 				k := "quota:req:m:" + ident + ":" + now.Format("200601")
-				if incTTL(rdb, local, ctx, k, 1, 32*24*time.Hour) > int64(sub.MonthlyRequestLimit) {
+				if incTTL(ctx, rdb, local, k, 1, 32*24*time.Hour) > int64(sub.MonthlyRequestLimit) {
 					g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 						"error": gin.H{"type": "quota_exceeded", "message": "monthly request quota exceeded"},
 					})
@@ -89,7 +89,7 @@ func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 		}
 		// TPM 预检(基于已记录的当前分钟用量;输入未知故仅按已用判断,真值在请求后补登)
 		if tpmLimit > 0 {
-			if get(rdb, local, ctx, tpmKey) >= int64(tpmLimit) {
+			if get(ctx, rdb, local, tpmKey) >= int64(tpmLimit) {
 				g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 					"error": gin.H{"type": "rate_limit_exceeded", "message": "TPM limit exceeded"},
 				})
@@ -101,19 +101,46 @@ func RateLimit(rdb *redis.Client, playground PlaygroundLimits) gin.HandlerFunc {
 		// 请求后:把本次 token 计入 TPM 桶(供后续请求预判)。
 		if tpmLimit > 0 {
 			if used := g.GetInt64("rl_tokens"); used > 0 {
-				inc(rdb, local, ctx, tpmKey, used)
+				inc(ctx, rdb, local, tpmKey, used)
 			}
 		}
 	}
 }
 
+// AuthRateLimit 公开鉴权端点(/api/auth/login|register|invites/accept)按来源 IP 的 RPM 限流。
+// 这些端点在主体确立前调用,无法走按身份的 RateLimit;bcrypt 单核约 50/s,需防并行爆破/凭证填充。
+// Redis 可用跨副本共享;故障降级到进程内内存桶(fail-closed)。rpm<=0 不限。
+func AuthRateLimit(rdb *redis.Client, rpm int) gin.HandlerFunc {
+	local := newLocalBuckets()
+	return func(g *gin.Context) {
+		if rpm <= 0 {
+			g.Next()
+			return
+		}
+		ip := g.ClientIP()
+		if ip == "" {
+			g.Next()
+			return
+		}
+		minute := time.Now().Format("200601021504")
+		key := "rl:authip:" + ip + ":" + minute
+		if n := inc(g.Request.Context(), rdb, local, key, 1); n > int64(rpm) {
+			g.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": gin.H{"type": "rate_limit_exceeded", "message": "too many auth attempts from this IP, retry later"},
+			})
+			return
+		}
+		g.Next()
+	}
+}
+
 // inc 自增分钟桶计数(固定 65s TTL);优先 Redis,故障/无 Redis 时回退内存桶。返回自增后的值。
-func inc(rdb *redis.Client, local *localBuckets, ctx context.Context, key string, delta int64) int64 {
-	return incTTL(rdb, local, ctx, key, delta, 65*time.Second)
+func inc(ctx context.Context, rdb *redis.Client, local *localBuckets, key string, delta int64) int64 {
+	return incTTL(ctx, rdb, local, key, delta, 65*time.Second)
 }
 
 // incTTL 自增桶计数并按 ttl 设过期(配额日/月桶用长 TTL,分钟桶用 65s)。
-func incTTL(rdb *redis.Client, local *localBuckets, ctx context.Context, key string, delta int64, ttl time.Duration) int64 {
+func incTTL(ctx context.Context, rdb *redis.Client, local *localBuckets, key string, delta int64, ttl time.Duration) int64 {
 	if rdb != nil {
 		if n, err := rdb.IncrBy(ctx, key, delta).Result(); err == nil {
 			_ = rdb.Expire(ctx, key, ttl).Err() // 幂等设 TTL
@@ -124,7 +151,7 @@ func incTTL(rdb *redis.Client, local *localBuckets, ctx context.Context, key str
 }
 
 // get 取桶当前值;优先 Redis,故障回退内存。
-func get(rdb *redis.Client, local *localBuckets, ctx context.Context, key string) int64 {
+func get(ctx context.Context, rdb *redis.Client, local *localBuckets, key string) int64 {
 	if rdb != nil {
 		if n, err := rdb.Get(ctx, key).Int64(); err == nil {
 			return n

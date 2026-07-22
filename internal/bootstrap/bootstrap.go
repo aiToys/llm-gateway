@@ -74,8 +74,8 @@ func Build(cfg *config.Config) (*Deps, error) {
 	// 预置常见供应商的 base_url 见前端 PROVIDER_TEMPLATES(seed 同源)。
 	registry := provider.NewRegistry()
 	registry.Register(mock.New())
-	registry.Register(openaicomp.New("openaicomp", ""))                            // 通用 OpenAI 兼容;defaultBaseURL 空 → 强制用渠道 base_url
-	registry.Register(anthropicprov.New("anthropic", "https://api.anthropic.com")) // Anthropic 原生(Claude 官方)
+	registry.Register(openaicomp.New("openaicomp", "", cfg.Dev))                            // 通用 OpenAI 兼容;defaultBaseURL 空 → 强制用渠道 base_url
+	registry.Register(anthropicprov.New("anthropic", "https://api.anthropic.com", cfg.Dev)) // Anthropic 原生(Claude 官方)
 
 	cipher, err := crypto.NewCipher(cfg.Auth.ChannelKeyMaster)
 	if err != nil {

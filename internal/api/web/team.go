@@ -10,6 +10,7 @@ import (
 	"github.com/aitoys/llm-gateway/internal/model"
 	"github.com/aitoys/llm-gateway/internal/store"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 )
 
 // requireTeamAdmin 团队管理操作(邀请/转账/改名)要求租户管理员或平台管理员,且本租户为启用态。
@@ -267,7 +268,9 @@ func (s *Server) inviteAccept(g *gin.Context) {
 			g.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "团队不可用"}})
 			return
 		}
-	} else if err != nil {
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// 邀请不存在(ErrNoRows)放行至 AcceptInviteAtomic,由其返 ErrInviteUnavailable→400;
+		// 仅 DB 真实错误上抛 500,避免把"邀请无效"误报成 internal_error。
 		s.respondInternal(g, err)
 		return
 	}

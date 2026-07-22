@@ -414,7 +414,11 @@ func (s *Service) Chat(ctx context.Context, sub auth.Subject, req *canon.Request
 		return resp, meta, nil
 	}
 	// 全部渠道失败: 错误用量记到最后一次实际尝试的渠道,而非序列首位,避免污染可用性统计。
-	s.recordUsage(ctx, sub, reqID, req.Model, lastTried, start, canon.Usage{}, 0, 0, "error", errCompact(lastErr), reqJSON, nil)
+	// 用脱离请求的 ctx 落库:客户端收到 5xx 后通常立即断连,复用请求 ctx 会丢失错误样本——
+	// 而这恰是排障最需要的样本(与成功路径 line 上方的 dbctx 模式一致)。
+	dbctx, dbcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	s.recordUsage(dbctx, sub, reqID, req.Model, lastTried, start, canon.Usage{}, 0, 0, "error", errCompact(lastErr), reqJSON, nil)
+	dbcancel()
 	if lastErr == nil {
 		lastErr = ErrNoChannel
 	}
@@ -478,7 +482,9 @@ func (s *Service) Embeddings(ctx context.Context, sub auth.Subject, modelName st
 		dbcancel()
 		return vecs, meta, nil
 	}
-	s.recordUsage(ctx, sub, reqID, modelName, lastTried, start, canon.Usage{}, 0, 0, "error", errCompact(lastErr), nil, nil)
+	dbctx, dbcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	s.recordUsage(dbctx, sub, reqID, modelName, lastTried, start, canon.Usage{}, 0, 0, "error", errCompact(lastErr), nil, nil)
+	dbcancel()
 	if lastErr == nil {
 		lastErr = ErrNoChannel
 	}

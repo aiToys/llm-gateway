@@ -3,7 +3,9 @@
 
 # 开发模式: true 时放宽密钥校验、放开模拟充值/注册、CORS 放行任意 Origin。
 # 生产部署务必设为 false(默认),并填写下方真实密钥,否则启动会因"弱密钥"被拒绝。
-dev: true
+# 注意: dev=true 时仅允许 loopback(127.0.0.1/localhost)监听,server.addr 若绑到非回环
+# 地址(:8080/0.0.0.0)会被拒绝启动,避免 mock 支付/弱密钥裸奔到公网。
+dev: false
 
 # 结构化日志(log/slog)。format=json 便于接入 ELK/Loki;level 控制详细度。
 log:

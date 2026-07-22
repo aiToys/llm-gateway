@@ -35,15 +35,42 @@ func TestValidateRejectsWeakSecretsInProduction(t *testing.T) {
 }
 
 func TestValidateDevFillsDefaults(t *testing.T) {
-	c := &Config{Dev: true} // 全空也能启动
+	c := &Config{Dev: true, Server: Server{Addr: "127.0.0.1:8080"}} // dev 需 loopback 监听
 	if err := c.Validate(); err != nil {
-		t.Fatalf("dev mode should never fail: %v", err)
+		t.Fatalf("dev mode should never fail with loopback addr: %v", err)
 	}
 	if c.Auth.JWTSecret == "" {
 		t.Fatal("dev mode should fill jwt secret")
 	}
 	if _, err := hex.DecodeString(c.Auth.ChannelKeyMaster); err != nil {
 		t.Fatalf("dev mode should fill a valid hex master: %v", err)
+	}
+}
+
+// TestValidateDevRejectsNonLoopback 验证 dev 模式仅允许 loopback 监听,
+// 防止 mock 支付/弱密钥裸奔到公网(:8080/0.0.0.0/公网 IP 均拒绝)。
+func TestValidateDevRejectsNonLoopback(t *testing.T) {
+	cases := []struct{ name, addr string }{
+		{"empty binds all", ""},
+		{"all interfaces", ":8080"},
+		{"wildcard v4", "0.0.0.0:8080"},
+		{"wildcard v6", "[::]:8080"},
+		{"public ip", "8.8.8.8:8080"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{Dev: true, Server: Server{Addr: tc.addr}}
+			if err := c.Validate(); err == nil {
+				t.Fatalf("dev with non-loopback addr %q should be rejected", tc.addr)
+			}
+		})
+	}
+	// loopback 应放行。
+	for _, addr := range []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} {
+		c := &Config{Dev: true, Server: Server{Addr: addr}}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("dev loopback addr %q should pass: %v", addr, err)
+		}
 	}
 }
 
