@@ -56,8 +56,8 @@ onMounted(async () => {
 <style scoped>
 .pg { max-width:1000px; margin:0 auto; padding:28px 24px 64px }
 .head { margin-bottom:20px }
-.head h2 { margin:0 0 6px; font-size:26px; color:#1f2330 }
-.head p { color:#6b7280; margin:0; line-height:1.6 }
+.head h2 { margin:0 0 6px; font-size:26px; color:var(--text-strong) }
+.head p { color:var(--text); margin:0; line-height:1.6 }
 .toolbar { margin-bottom:12px }
-.note { color:#9aa1ad; font-size:13px; margin-top:16px }
+.note { color:var(--text-muted); font-size:13px; margin-top:16px }
 </style>

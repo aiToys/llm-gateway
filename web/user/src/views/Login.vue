@@ -113,7 +113,7 @@ onMounted(() => {
 <style scoped>
 .page { min-height:100vh; display:flex; align-items:center; justify-content:center;
   background: radial-gradient(circle at 20% 20%, #e8efff, #f6f8fc 40%), linear-gradient(135deg,#f6f8fc,#eef2ff) }
-.card { width:min(420px, calc(100vw - 32px)); background:#fff; border-radius:16px; padding:32px; box-shadow:0 12px 40px rgba(40,60,120,.08) }
+.card { width:min(420px, calc(100vw - 32px)); background:var(--bg-card); border-radius:16px; padding:32px; box-shadow:0 12px 40px rgba(40,60,120,.08) }
 .brand { display:flex; align-items:center; gap:10px }
 .brand h2 { margin:0; font-size:20px }
 .brand .logo-img { width:26px; height:26px }

@@ -131,7 +131,7 @@ onMounted(load)
 .page { padding:24px }
 .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px }
 .head h3 { margin:0 }
-code { background:#f0f2f5; padding:2px 8px; border-radius:4px; user-select:all; word-break:break-all }
+code { background:var(--hover-bg); padding:2px 8px; border-radius:4px; user-select:all; word-break:break-all }
 .quota-title { font-size:13px; color:#666; margin:4px 0 6px }
 .quota-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 12px }
 </style>

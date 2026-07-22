@@ -13,7 +13,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import {
   NConfigProvider, NLoadingBarProvider, NMessageProvider,
   NDialogProvider, NNotificationProvider, zhCN, dateZhCN, darkTheme
@@ -23,6 +23,10 @@ import { theme } from './store.js'
 // 主题: 直接读取 store 内部 ref 做 computed,任何页面调用 theme.toggle() 都会立即生效。
 // 浅色模式传 null(naive-ui 约定),深色模式传 darkTheme。
 const themeRef = computed(() => theme.ref.value === 'dark' ? darkTheme : null)
+
+// 同步 theme 到 <html data-theme>,供非 naive-ui 元素(自定义 div/文字)经 CSS 变量跟随暗色。
+// naive-ui 的 darkTheme 仅作用于其自身组件,不覆盖 body/自定义容器背景。
+watch(() => theme.ref.value, (v) => { document.documentElement.dataset.theme = v }, { immediate: true })
 
 // 智谱风格的科技蓝主题(浅色/深色通用覆盖)
 const themeOverrides = {

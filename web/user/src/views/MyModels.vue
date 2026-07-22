@@ -57,6 +57,6 @@ onMounted(load)
 <style scoped>
 .page { padding:24px; overflow-y:auto; height:100%; max-width:1200px }
 .head { margin-bottom:18px }
-.head h3 { margin:0; font-size:22px; color:#1f2330 }
-.sub { color:#6b7280; font-size:13px; margin:6px 0 0; line-height:1.6 }
+.head h3 { margin:0; font-size:22px; color:var(--text-strong) }
+.sub { color:var(--text); font-size:13px; margin:6px 0 0; line-height:1.6 }
 </style>

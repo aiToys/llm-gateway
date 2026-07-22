@@ -136,9 +136,9 @@ function exportRows() {
 .head h3 { margin:0 }
 .controls { display:flex; gap:8px }
 .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px }
-.card { background:#fff; border-radius:12px; padding:16px 18px; box-shadow:0 1px 3px rgba(0,0,0,.04) }
+.card { background:var(--bg-card); border-radius:12px; padding:16px 18px; box-shadow:0 1px 3px rgba(0,0,0,.04) }
 .card .k { color:#9097a3; font-size:13px }
-.card .v { font-size:22px; font-weight:700; color:#1f2330; margin-top:6px }
+.card .v { font-size:22px; font-weight:700; color:var(--text-strong); margin-top:6px }
 .card small { color:#b5bac4; font-size:11px }
-.chart { background:#fff; border-radius:12px; padding:12px }
+.chart { background:var(--bg-card); border-radius:12px; padding:12px }
 </style>

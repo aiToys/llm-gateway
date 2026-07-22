@@ -90,18 +90,18 @@ watch(state, (s) => emit('update', s), { deep: true })
 .filters { width: 220px; flex-shrink: 0; position: sticky; top: 76px; align-self: flex-start; max-height: calc(100vh - 96px); overflow-y: auto }
 .search { margin-bottom: 18px }
 .s-ic { opacity: .5 }
-.group { margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid #eef0f5 }
+.group { margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--border) }
 .group:last-of-type { border-bottom: none }
-.ghead { font-size: 13px; font-weight: 600; color: #1f2330; margin-bottom: 10px }
-.gdesc { font-size: 11px; color: #9aa1ad; margin: 0 0 8px }
-.opt { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; font-size: 13px; color: #5b6270; cursor: pointer; transition: background .12s }
-.opt:hover { background: #f3f5fa }
+.ghead { font-size: 13px; font-weight: 600; color:var(--text-strong); margin-bottom: 10px }
+.gdesc { font-size: 11px; color:var(--text-muted); margin: 0 0 8px }
+.opt { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; font-size: 13px; color:var(--text); cursor: pointer; transition: background .12s }
+.opt:hover { background:var(--hover-bg) }
 .opt.on { background: #eef4ff; color: #3D6EFF; font-weight: 600 }
 .opt.dim { opacity: .45 }
-.opt b { font-size: 12px; color: #9aa1ad; font-weight: 500 }
+.opt b { font-size: 12px; color:var(--text-muted); font-weight: 500 }
 .opt.on b { color: #3D6EFF }
 .caps { display: flex; gap: 6px; flex-wrap: wrap }
-.capopt { font-size: 12px; padding: 4px 10px; border-radius: 8px; background: #f3f5fa; color: #5b6270; cursor: pointer; border: 1px solid transparent; transition: .12s }
+.capopt { font-size: 12px; padding: 4px 10px; border-radius: 8px; background:var(--hover-bg); color:var(--text); cursor: pointer; border: 1px solid transparent; transition: .12s }
 .capopt:hover { border-color: #d4e3ff }
 .capopt.on { background: #eef4ff; color: #3D6EFF; border-color: #3D6EFF; font-weight: 600 }
 .reset { padding-top: 4px }

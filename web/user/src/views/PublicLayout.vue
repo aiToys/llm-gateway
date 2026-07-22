@@ -66,19 +66,19 @@ function toggleTheme() { theme.toggle() }
 </script>
 
 <style scoped>
-.pub { min-height:100vh; display:flex; flex-direction:column; background:#f7f8fc }
-.nav { height:60px; display:flex; align-items:center; padding:0 32px; gap:32px; background:#fff; border-bottom:1px solid #eef0f5; position:sticky; top:0; z-index:10 }
+.pub { min-height:100vh; display:flex; flex-direction:column; background:var(--bg-page) }
+.nav { height:60px; display:flex; align-items:center; padding:0 32px; gap:32px; background:var(--bg-card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10 }
 .brand { font-weight:700; font-size:17px; display:flex; align-items:center; gap:8px; cursor:pointer }
 .brand .logo-img { width:22px; height:22px }
 .brand.sm .logo-img { width:18px; height:18px }
 .links { display:flex; gap:22px; flex:1; align-items:center }
-.links a { color:#5b6270; text-decoration:none; font-size:14px; font-weight:500 }
+.links a { color:var(--text); text-decoration:none; font-size:14px; font-weight:500 }
 .links a:hover { color:#3D6EFF }
 .links a.router-link-exact-active { color:#3D6EFF }
 .links a.ext { display:inline-flex; align-items:center }
 .right { display:flex; gap:8px; align-items:center }
-.gh { display:inline-flex; align-items:center; justify-content:center; color:#5b6270; padding:6px; border-radius:8px; transition:.15s }
-.gh:hover { color:#1f2330; background:#f3f4f7 }
+.gh { display:inline-flex; align-items:center; justify-content:center; color:var(--text); padding:6px; border-radius:8px; transition:.15s }
+.gh:hover { color:var(--text-strong); background:var(--hover-bg) }
 main { flex:1 }
 
 /* footer 分栏 */

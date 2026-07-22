@@ -4,6 +4,7 @@ import App from './App.vue'
 import Layout from './views/Layout.vue'
 import PublicLayout from './views/PublicLayout.vue'
 import { token } from './store.js'
+import './styles.css'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue') },

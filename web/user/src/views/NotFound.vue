@@ -13,5 +13,5 @@ const router = useRouter()
 <style scoped>
 .nf { min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
 .code { font-size: 72px; font-weight: 800; color: #134e4a; line-height: 1; }
-.msg { color: #6b7280; margin: 0; }
+.msg { color:var(--text); margin: 0; }
 </style>

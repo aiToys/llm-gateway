@@ -138,10 +138,10 @@ onMounted(load)
 <style scoped>
 .mp { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px }
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap }
-.head h2 { margin: 0 0 6px; font-size: 28px; color: #1f2330 }
-.head p { color: #6b7280; margin: 0; font-size: 14px }
-.tabs { display: flex; gap: 8px; background: #fff; border: 1px solid #eef0f5; border-radius: 10px; padding: 4px }
-.tab { padding: 7px 14px; border-radius: 7px; font-size: 13px; color: #5b6270; cursor: pointer; transition: .15s; white-space: nowrap }
+.head h2 { margin: 0 0 6px; font-size: 28px; color:var(--text-strong) }
+.head p { color:var(--text); margin: 0; font-size: 14px }
+.tabs { display: flex; gap: 8px; background:var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 4px }
+.tab { padding: 7px 14px; border-radius: 7px; font-size: 13px; color:var(--text); cursor: pointer; transition: .15s; white-space: nowrap }
 .tab:hover { color: #3D6EFF }
 .tab.on { background: #3D6EFF; color: #fff; font-weight: 600 }
 .tab b { font-weight: 700; margin-left: 2px }
@@ -150,12 +150,12 @@ onMounted(load)
 .notice .nb { width: 18px; height: 18px; border-radius: 50%; background: #f5c518; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; font-style: italic; flex-shrink: 0 }
 .body { display: flex; gap: 28px; align-items: flex-start }
 .main { flex: 1; min-width: 0 }
-.result-bar { font-size: 13px; color: #6b7280; margin-bottom: 14px }
-.result-bar b { color: #1f2330 }
+.result-bar { font-size: 13px; color:var(--text); margin-bottom: 14px }
+.result-bar b { color:var(--text-strong) }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start }
 .skel { min-height: 200px; background: linear-gradient(90deg, #f3f4f7 25%, #e9ebf2 37%, #f3f4f7 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; border-radius: 14px }
 @keyframes sk { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
-.d-desc { color: #6b7280; font-size: 14px; line-height: 1.7; margin: 0 0 16px }
+.d-desc { color:var(--text); font-size: 14px; line-height: 1.7; margin: 0 0 16px }
 .d-act { display: flex; justify-content: flex-end; margin-top: 16px }
 @media (max-width: 1024px) { .grid { grid-template-columns: repeat(2, 1fr) } }
 @media (max-width: 860px) {

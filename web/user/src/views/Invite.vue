@@ -63,8 +63,8 @@ function goHome() { router.push('/') }
 
 <style scoped>
 .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#3D6EFF22,#22d3ee22) }
-.card { background:#fff; border-radius:16px; padding:32px; width:380px; box-shadow:0 8px 30px #1f233022; text-align:center }
+.card { background:var(--bg-card); border-radius:16px; padding:32px; width:380px; box-shadow:0 8px 30px #1f233022; text-align:center }
 .logo { font-size:30px; color:#3D6EFF; margin-bottom:6px }
 h2 { margin:6px 0 4px; font-size:20px }
-.sub { color:#6b7280; font-size:13px; margin-bottom:18px }
+.sub { color:var(--text); font-size:13px; margin-bottom:18px }
 </style>

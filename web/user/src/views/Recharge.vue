@@ -254,23 +254,23 @@ h3 { margin-top:0 }
 .balance-card .k { opacity:.85; font-size:14px }
 .balance-card .v { font-size:36px; font-weight:700; margin-top:6px }
 .amounts { display:grid; grid-template-columns:repeat(4,1fr); gap:12px }
-.amt { background:#fff; border:2px solid #ebedf2; border-radius:12px; padding:18px; text-align:center; font-weight:600; cursor:pointer; transition:.15s; font:inherit; color:#1f2330 }
+.amt { background:var(--bg-card); border:2px solid var(--border); border-radius:12px; padding:18px; text-align:center; font-weight:600; cursor:pointer; transition:.15s; font:inherit; color:var(--text-strong) }
 .amt:hover { border-color:#3D6EFF }
 .amt.on { border-color:#3D6EFF; background:#f0f4ff; color:#3D6EFF }
 .custom { display:flex; align-items:center; gap:10px; margin-top:14px }
-.clabel { font-size:13px; color:#6b7280 }
+.clabel { font-size:13px; color:var(--text) }
 .prov-row { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap }
-.prov { display:flex; align-items:center; gap:8px; background:#fff; border:2px solid #ebedf2; border-radius:12px; padding:10px 16px; cursor:pointer; font:inherit; color:#1f2330; transition:.15s }
+.prov { display:flex; align-items:center; gap:8px; background:var(--bg-card); border:2px solid var(--border); border-radius:12px; padding:10px 16px; cursor:pointer; font:inherit; color:var(--text-strong); transition:.15s }
 .prov:hover { border-color:#3D6EFF }
 .prov.on { border-color:#3D6EFF; background:#f0f4ff }
 .plogo { width:22px; height:22px; border-radius:6px; color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; font-weight:700 }
 .qr-wrap { text-align:center }
 .qr-box { display:flex; flex-direction:column; align-items:center; gap:8px }
 .qr-img { width:220px; height:220px; border-radius:8px; border:1px solid #eef }
-.qr-tip { font-size:13px; color:#6b7280; margin:6px 0 }
+.qr-tip { font-size:13px; color:var(--text); margin:6px 0 }
 .qr-status { display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; margin-top:8px; min-height:22px }
 .qr-actions { margin-top:10px }
 .redeem { display:flex; align-items:center; gap:10px; margin-top:18px; max-width:480px }
-.redeem .rlabel { font-size:13px; color:#6b7280; flex-shrink:0 }
+.redeem .rlabel { font-size:13px; color:var(--text); flex-shrink:0 }
 @media (max-width:480px) { .amounts { grid-template-columns:repeat(2,1fr) } }
 </style>

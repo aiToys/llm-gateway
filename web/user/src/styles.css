@@ -1,0 +1,29 @@
+/* 全局主题 CSS 变量。:root 浅色;[data-theme="dark"] 深色覆盖。
+   App.vue watch theme -> <html data-theme>,使非 naive-ui 元素(自定义 div/文字)也能跟随暗色。
+   naive-ui 的 darkTheme 只作用于其自身组件,不覆盖 body/自定义容器,故需此变量层。 */
+:root {
+  --bg-page: #f7f8fc;
+  --bg-card: #ffffff;
+  --text-strong: #1f2330;
+  --text: #5b6270;
+  --text-muted: #666666;
+  --border: #eef0f5;
+  --hover-bg: #f3f4f7;
+  --feature-bg: linear-gradient(135deg, #f0f4ff 0%, #e6eeff 60%, #dfeaff 100%);
+}
+:root[data-theme="dark"] {
+  --bg-page: #101014;
+  --bg-card: #18181c;
+  --text-strong: #e5e5ea;
+  --text: #9ea0a6;
+  --text-muted: #9ea0a6;
+  --border: #2c2c32;
+  --hover-bg: #26262c;
+  --feature-bg: linear-gradient(135deg, #1a2238 0%, #1c2a4a 60%, #1e3055 100%);
+}
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--text-strong);
+  transition: background .2s, color .2s;
+}

@@ -82,10 +82,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.logo { display:flex; align-items:center; gap:8px; padding:18px 20px; font-weight:700; font-size:16px; color:#1f2330 }
+.logo { display:flex; align-items:center; gap:8px; padding:18px 20px; font-weight:700; font-size:16px; color:var(--text-strong) }
 .logo-img { width:24px; height:24px; flex-shrink:0 }
-.balance { margin-top:auto; padding:14px 20px; font-size:13px; color:#666; display:flex; align-items:center; gap:6px; flex-wrap:wrap }
-.header { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:#fff }
-.header .title { font-weight:600; color:#1f2330 }
+.balance { margin-top:auto; padding:14px 20px; font-size:13px; color:var(--text-muted); display:flex; align-items:center; gap:6px; flex-wrap:wrap }
+.header { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:var(--bg-card) }
+.header .title { font-weight:600; color:var(--text-strong) }
 .header-right { display:flex; align-items:center; gap:8px }
 </style>

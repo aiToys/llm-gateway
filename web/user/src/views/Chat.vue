@@ -305,13 +305,13 @@ async function scroll() {
 </script>
 
 <style scoped>
-.chat-wrap { display:flex; flex-direction:column; height:100%; background:#f7f8fa }
+.chat-wrap { display:flex; flex-direction:column; height:100%; background:var(--bg-page) }
 .messages { flex:1; overflow-y:auto; padding:24px max(24px,calc((100% - 820px)/2)) }
-.empty { text-align:center; color:#9aa1ad; margin-top:16vh }
+.empty { text-align:center; color:var(--text-muted); margin-top:16vh }
 .empty .big { font-size:48px }
 .empty p { margin:8px 0 16px }
 .examples { display:flex; flex-direction:column; gap:8px; align-items:center }
-.ex { background:#fff; border:1px solid #eef0f5; border-radius:8px; padding:8px 14px; cursor:pointer; color:#4b5160; font:inherit; font-size:13px }
+.ex { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; color:var(--text); font:inherit; font-size:13px }
 .ex:hover { border-color:#3D6EFF; color:#3D6EFF }
 .msg { display:flex; gap:12px; margin-bottom:20px; max-width:820px }
 .msg.user { flex-direction:row-reverse; margin-left:auto }
@@ -320,7 +320,7 @@ async function scroll() {
   font-size:13px;font-weight:600;color:#fff;background:linear-gradient(135deg,#3D6EFF,#22d3ee) }
 .msg.user .avatar { background:#8b93a7 }
 .bubble-wrap { max-width:680px }
-.bubble { background:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04) }
+.bubble { background:var(--bg-card);border-radius:12px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04) }
 .msg.user .bubble { background:#3D6EFF;color:#fff }
 .bubble pre { margin:0; white-space:pre-wrap; word-break:break-word; font-family:inherit; font-size:14px; line-height:1.7 }
 .reasoning { margin-bottom:8px; border-left:2px solid #d6deea; padding:2px 0 2px 10px; color:#8a92a3 }
@@ -330,13 +330,13 @@ async function scroll() {
 @keyframes blink { 50% { opacity:0 } }
 .msg-actions { display:flex; gap:10px; margin-top:6px; opacity:0; transition:.15s }
 .msg:hover .msg-actions, .msg.err .msg-actions { opacity:1 }
-.act { background:none; border:none; color:#9aa1ad; cursor:pointer; font-size:12px; padding:0 }
+.act { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; padding:0 }
 .act:hover { color:#3D6EFF }
-.composer { border-top:1px solid #eee; background:#fff; padding:12px 24px 16px }
+.composer { border-top:1px solid var(--border); background:var(--bg-card); padding:12px 24px 16px }
 .bar { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap }
 .input-row { display:flex; gap:10px; align-items:flex-end }
 .attaches { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap }
-.att { position:relative; border:1px solid #eef0f5; border-radius:8px; padding:4px 8px; font-size:12px; background:#fafbfc }
+.att { position:relative; border:1px solid var(--border); border-radius:8px; padding:4px 8px; font-size:12px; background:var(--hover-bg) }
 .att img { width:48px; height:48px; object-fit:cover; border-radius:4px; display:block }
 .rm { position:absolute; top:-6px; right:-6px; background:#666; color:#fff; width:18px; height:18px; border-radius:50%; border:none; cursor:pointer; font-weight:400; line-height:16px; padding:0 }
 @media (max-width:768px) {

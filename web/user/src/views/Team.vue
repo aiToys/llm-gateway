@@ -158,8 +158,8 @@ onMounted(load)
 .page { padding:24px; max-width:860px }
 .head { display:flex; justify-content:space-between; align-items:center }
 .head h3 { margin:0; display:inline }
-.stat { background:#f7f8fc; border-radius:12px; padding:16px }
-.stat .k { font-size:12px; color:#6b7280 }
+.stat { background:var(--bg-page); border-radius:12px; padding:16px }
+.stat .k { font-size:12px; color:var(--text) }
 .stat .v { font-size:24px; font-weight:700; margin-top:4px }
 h4 { margin:20px 0 10px; font-size:14px; border-left:3px solid #3D6EFF; padding-left:8px }
 .invite-row { display:flex; gap:8px }
